@@ -1,8 +1,22 @@
 import { eq, and, lt, gt, desc, asc, isNull, sql } from "drizzle-orm";
-import { messages, messageSeqCounters, conversations } from "../db/schema/index.js";
+import {
+  messages,
+  messageSeqCounters,
+  conversations,
+  messageMentions,
+  notifications,
+  objectReferences,
+} from "../db/schema/index.js";
 import { withTenantTx } from "./base.js";
 import type { RequestIdentity } from "../auth/plugin.js";
 import type { Db } from "./base.js";
+
+export interface ObjectReferenceInput {
+  object_type: string;
+  object_id: string;
+  display_title: string;
+  display_subtitle?: string | null;
+}
 
 export interface SendMessageInput {
   conversationId: string;
@@ -11,10 +25,13 @@ export interface SendMessageInput {
   parentId?: string;
   attachmentIds?: string[];
   mentionIds?: string[];
+  objectReferences?: ObjectReferenceInput[];
 }
 
 export interface SendMessageResult {
-  message: typeof messages.$inferSelect;
+  message: typeof messages.$inferSelect & {
+    object_references?: (typeof objectReferences.$inferSelect)[];
+  };
   created: boolean;
 }
 
@@ -48,6 +65,20 @@ export const messagesRepo = {
         throw new Error(`No seq counter for conversation ${input.conversationId}`);
       }
 
+      // Extract mention IDs from body (@UUID) and combine with explicit mentionIds
+      const extractedMentionIds = new Set<string>(input.mentionIds ?? []);
+      const mentionMatches = input.body.match(/@([a-f0-9-]{36})/gi);
+      if (mentionMatches) {
+        for (const m of mentionMatches) {
+          const uId = m.slice(1);
+          if (uId !== identity.userId) {
+            extractedMentionIds.add(uId);
+          }
+        }
+      }
+      extractedMentionIds.delete(identity.userId);
+      const finalMentionIds = Array.from(extractedMentionIds);
+
       const [msg] = await tx
         .insert(messages)
         .values({
@@ -59,18 +90,78 @@ export const messagesRepo = {
           body: input.body,
           parent_id: input.parentId ?? null,
           attachment_ids: input.attachmentIds ?? [],
-          mention_ids: input.mentionIds ?? [],
+          mention_ids: finalMentionIds,
+          object_reference_ids: [],
         })
         .returning();
 
       if (!msg) throw new Error("Failed to insert message");
+
+      // Handle object references
+      const createdRefs: (typeof objectReferences.$inferSelect)[] = [];
+      const objRefIds: string[] = [];
+      if (input.objectReferences && input.objectReferences.length > 0) {
+        for (const ref of input.objectReferences) {
+          const [insertedRef] = await tx
+            .insert(objectReferences)
+            .values({
+              company_id: identity.companyId,
+              message_id: msg.id,
+              object_type: ref.object_type,
+              object_id: ref.object_id,
+              display_title: ref.display_title,
+              display_subtitle: ref.display_subtitle ?? null,
+            })
+            .returning();
+          if (insertedRef) {
+            createdRefs.push(insertedRef);
+            objRefIds.push(insertedRef.id);
+          }
+        }
+        if (objRefIds.length > 0) {
+          await tx
+            .update(messages)
+            .set({ object_reference_ids: objRefIds })
+            .where(eq(messages.id, msg.id));
+          msg.object_reference_ids = objRefIds;
+        }
+      }
+
+      // Record mentions & create notifications
+      for (const mUserId of finalMentionIds) {
+        await tx
+          .insert(messageMentions)
+          .values({
+            company_id: identity.companyId,
+            conversation_id: input.conversationId,
+            message_id: msg.id,
+            user_id: mUserId,
+          })
+          .onConflictDoNothing();
+
+        await tx.insert(notifications).values({
+          user_id: mUserId,
+          company_id: identity.companyId,
+          kind: "mention",
+          conversation_id: input.conversationId,
+          message_id: msg.id,
+          actor_id: identity.userId,
+          is_read: false,
+        });
+      }
 
       await tx
         .update(conversations)
         .set({ last_message_at: msg.created_at, updated_at: msg.created_at })
         .where(eq(conversations.id, input.conversationId));
 
-      return { message: msg, created: true };
+      return {
+        message: {
+          ...msg,
+          object_references: createdRefs,
+        },
+        created: true,
+      };
     });
   },
 
@@ -176,6 +267,20 @@ export const messagesRepo = {
         .where(and(eq(messages.id, id), eq(messages.company_id, identity.companyId)))
         .limit(1);
       return rows[0] ?? null;
+    });
+  },
+
+  async getObjectReferences(identity: RequestIdentity, messageId: string) {
+    return withTenantTx(identity, async (tx: Db) => {
+      return tx
+        .select()
+        .from(objectReferences)
+        .where(
+          and(
+            eq(objectReferences.message_id, messageId),
+            eq(objectReferences.company_id, identity.companyId),
+          ),
+        );
     });
   },
 

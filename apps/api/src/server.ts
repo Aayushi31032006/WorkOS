@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Fastify application factory.
  * Import and call buildApp() for tests; call start() for production.
  */
@@ -7,6 +7,8 @@ import fastifyCors from "@fastify/cors";
 import fastifyHelmet from "@fastify/helmet";
 import fastifyRateLimit from "@fastify/rate-limit";
 import fastifyWebsocket from "@fastify/websocket";
+import fastifySwagger from "@fastify/swagger";
+import fastifySwaggerUi from "@fastify/swagger-ui";
 import { env } from "./env.js";
 import authPlugin from "./auth/plugin.js";
 import wsGateway from "./ws/gateway.js";
@@ -18,7 +20,10 @@ import messageRoutes from "./routes/v1/messages.js";
 import reactionRoutes from "./routes/v1/reactions.js";
 import readStateRoutes from "./routes/v1/readState.js";
 import draftRoutes from "./routes/v1/drafts.js";
+import userRoutes from "./routes/v1/users.js";
+import notificationRoutes from "./routes/v1/notifications.js";
 import { pubsub } from "./pubsub/index.js";
+import { verifyAppUserRole } from "./db/verifyRole.js";
 
 export async function buildApp(opts?: { testing?: boolean }) {
   const app = Fastify({
@@ -59,6 +64,37 @@ export async function buildApp(opts?: { testing?: boolean }) {
   // -- Auth plugin (JWKS verification, injects request.identity) ------------
   await app.register(authPlugin);
 
+  // -- OpenAPI Swagger -------------------------------------------------------
+  await app.register(fastifySwagger, {
+    openapi: {
+      openapi: "3.0.3",
+      info: {
+        title: "Communication System API",
+        description: "Fastify HTTP + WebSocket backend API",
+        version: "0.1.0",
+      },
+      servers: [{ url: `http://localhost:${env.API_PORT}`, description: "Local development" }],
+      components: {
+        securitySchemes: {
+          bearerAuth: {
+            type: "http",
+            scheme: "bearer",
+            bearerFormat: "JWT",
+          },
+        },
+      },
+      security: [{ bearerAuth: [] }],
+    },
+  });
+
+  await app.register(fastifySwaggerUi, {
+    routePrefix: "/documentation",
+    uiConfig: {
+      docExpansion: "list",
+      deepLinking: true,
+    },
+  });
+
   // -- Error handler ---------------------------------------------------------
   app.setErrorHandler((err, request, reply) => {
     const statusCode = err.statusCode ?? 500;
@@ -83,11 +119,14 @@ export async function buildApp(opts?: { testing?: boolean }) {
   await app.register(reactionRoutes);
   await app.register(readStateRoutes);
   await app.register(draftRoutes);
+  await app.register(userRoutes);
+  await app.register(notificationRoutes);
   await app.register(wsGateway);
 
-  // -- Lifecycle: connect pubsub on start ------------------------------------
+  // -- Lifecycle: connect pubsub and verify app_user on start ---------------
   if (!opts?.testing) {
     app.addHook("onReady", async () => {
+      await verifyAppUserRole();
       await pubsub.connect();
     });
     app.addHook("onClose", async () => {
@@ -99,6 +138,7 @@ export async function buildApp(opts?: { testing?: boolean }) {
 }
 
 export async function start() {
+  await verifyAppUserRole();
   const app = await buildApp();
   try {
     await app.listen({ port: env.API_PORT, host: env.API_HOST });

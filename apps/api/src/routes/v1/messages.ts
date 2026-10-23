@@ -88,6 +88,7 @@ export default async function messageRoutes(fastify: FastifyInstance) {
       parentId: body.data.parent_id,
       attachmentIds: body.data.attachment_ids,
       mentionIds: body.data.mention_ids,
+      objectReferences: body.data.object_references,
     });
 
     if (created) {

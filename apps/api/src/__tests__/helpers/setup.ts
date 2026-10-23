@@ -1,5 +1,7 @@
 export async function setup() {
   process.env.DATABASE_URL =
+    "postgresql://app_user:app_pass@localhost:5432/communication_system_test";
+  process.env.MIGRATION_DATABASE_URL =
     "postgresql://cs_user:cs_pass@localhost:5432/communication_system_test";
   process.env.TEST_DATABASE_URL =
     "postgresql://cs_user:cs_pass@localhost:5432/communication_system_test";

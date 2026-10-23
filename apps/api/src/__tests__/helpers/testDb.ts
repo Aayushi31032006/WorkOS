@@ -4,6 +4,7 @@ import * as schema from "../../db/schema/index.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync } from "node:fs";
 import { ALL_USERS } from "@cs/test-fixtures";
 import type { RequestIdentity } from "../../auth/plugin.js";
 
@@ -25,9 +26,21 @@ export function getTestSql() {
   return _sql;
 }
 
+function findPsql(): string {
+  if (process.env.PSQL_PATH && existsSync(process.env.PSQL_PATH)) {
+    return process.env.PSQL_PATH;
+  }
+  const defaultWinPsql = "C:\\Program Files\\PostgreSQL\\16\\bin\\psql.exe";
+  if (existsSync(defaultWinPsql)) {
+    return defaultWinPsql;
+  }
+  return "psql";
+}
+
 function runPsql(file: string, dbUrl: string) {
+  const psqlBin = findPsql();
   const url = new URL(dbUrl);
-  execFileSync("psql", ["-f", file, "-v", "ON_ERROR_STOP=1"], {
+  execFileSync(psqlBin, ["-f", file, "-v", "ON_ERROR_STOP=1"], {
     env: {
       ...process.env,
       PGHOST: url.hostname,
@@ -41,14 +54,21 @@ function runPsql(file: string, dbUrl: string) {
 }
 
 export async function setupTestDb(): Promise<void> {
-  const dropFile = join(__dirname, "../../db/migrations/_drop_all.sql");
-  const migFile = join(__dirname, "../../db/migrations/0001_initial_schema.sql");
+  const migrationsDir = join(__dirname, "../../db/migrations");
+  const dropFile = join(migrationsDir, "_drop_all.sql");
   try {
     runPsql(dropFile, TEST_DB_URL);
   } catch {
     /* ignore */
   }
-  runPsql(migFile, TEST_DB_URL);
+
+  const migrationFiles = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith(".sql") && !f.startsWith("_"))
+    .sort();
+
+  for (const f of migrationFiles) {
+    runPsql(join(migrationsDir, f), TEST_DB_URL);
+  }
 
   _sql = postgres(TEST_DB_URL, { max: 5, idle_timeout: 5 });
   _db = drizzle(_sql, { schema });
@@ -56,6 +76,8 @@ export async function setupTestDb(): Promise<void> {
   await _sql`GRANT USAGE ON SCHEMA public TO app_user`;
   await _sql`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user`;
   await _sql`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO app_user`;
+  await _sql`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user`;
+  await _sql`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO app_user`;
 }
 
 export function getAppUserSql() {

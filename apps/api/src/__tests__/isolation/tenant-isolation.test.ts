@@ -124,6 +124,14 @@ describe("Tenant Isolation", () => {
 
   // -- RLS enforcement verification (as restricted non-owner app_user) ----------
 
+  it("proves the running API connects as app_user (not superuser, not BYPASSRLS)", async () => {
+    const { verifyAppUserRole } = await import("../../db/verifyRole.js");
+    const role = await verifyAppUserRole();
+    expect(role.current_user).toBe("app_user");
+    expect(role.rolsuper).toBe(false);
+    expect(role.rolbypassrls).toBe(false);
+  });
+
   it("RLS: raw query as app_user without app.company_id returns 0 rows", async () => {
     const { getAppUserSql } = await import("../helpers/testDb.js");
     const appSql = getAppUserSql();
