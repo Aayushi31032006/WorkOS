@@ -27,7 +27,7 @@ export const PageInfoSchema = z.object({
   hasPreviousPage: z.boolean(),
   startCursor: z.string().nullable(),
   endCursor: z.string().nullable(),
-  /** Total count – may be expensive; only returned when explicitly requested */
+  /** Total count ï¿½ may be expensive; only returned when explicitly requested */
   total: z.number().int().optional(),
 });
 
@@ -41,14 +41,12 @@ export function encodeCursor(payload: Record<string, unknown>): string {
 /** Decode and validate a cursor string */
 export function decodeCursor(cursor: string): Record<string, unknown> {
   try {
-    const decoded = JSON.parse(
-      Buffer.from(cursor, "base64url").toString("utf-8"),
-    ) as unknown;
+    const decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf-8")) as unknown;
     if (
       typeof decoded !== "object" ||
       decoded === null ||
-      typeof (decoded as Record<string, unknown>)["seq"] !== "number" ||
-      typeof (decoded as Record<string, unknown>)["id"] !== "string"
+      typeof (decoded as Record<string, unknown>).seq !== "number" ||
+      typeof (decoded as Record<string, unknown>).id !== "string"
     ) {
       throw new Error("invalid shape");
     }
@@ -57,4 +55,3 @@ export function decodeCursor(cursor: string): Record<string, unknown> {
     throw new Error("INVALID_CURSOR");
   }
 }
-

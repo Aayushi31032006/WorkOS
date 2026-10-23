@@ -9,9 +9,7 @@ import {
   MembershipSchema,
   MessageSchema,
   ReactionSummarySchema,
-  AttachmentWithUrlSchema,
   ObjectReferenceSchema,
-  DraftSchema,
   NotificationSchema,
   AuditLogSchema,
   WebhookEndpointSchema,
@@ -40,7 +38,10 @@ export const CreateChannelRequestSchema = z.object({
     .string()
     .min(1)
     .max(100)
-    .regex(/^[a-z0-9_-]+$/, "Channel names must be lowercase alphanumeric, hyphens, or underscores"),
+    .regex(
+      /^[a-z0-9_-]+$/,
+      "Channel names must be lowercase alphanumeric, hyphens, or underscores",
+    ),
   topic: z.string().max(500).optional(),
   kind: ChannelKindSchema,
   department_id: UuidSchema.optional(),
@@ -86,7 +87,7 @@ export const MembershipListResponseSchema = paginated(MembershipSchema);
 // --- Direct Messages ----------------------------------------------------------
 
 export const CreateDmRequestSchema = z.object({
-  /** Exactly one user ID for DM, 2–8 for group DM */
+  /** Exactly one user ID for DM, 2ï¿½8 for group DM */
   user_ids: z.array(UuidSchema).min(1).max(8),
 });
 export type CreateDmRequest = z.infer<typeof CreateDmRequestSchema>;
@@ -163,9 +164,7 @@ export const RequestUploadUrlRequestSchema = z.object({
   /** SHA-256 of file content for integrity check after upload */
   checksum_sha256: z.string().length(64),
 });
-export type RequestUploadUrlRequest = z.infer<
-  typeof RequestUploadUrlRequestSchema
->;
+export type RequestUploadUrlRequest = z.infer<typeof RequestUploadUrlRequestSchema>;
 
 export const UploadUrlResponseSchema = z.object({
   attachment_id: UuidSchema,
@@ -179,9 +178,7 @@ export type UploadUrlResponse = z.infer<typeof UploadUrlResponseSchema>;
 export const FinalizeAttachmentRequestSchema = z.object({
   attachment_id: UuidSchema,
 });
-export type FinalizeAttachmentRequest = z.infer<
-  typeof FinalizeAttachmentRequestSchema
->;
+export type FinalizeAttachmentRequest = z.infer<typeof FinalizeAttachmentRequestSchema>;
 
 // --- Search -------------------------------------------------------------------
 
@@ -242,9 +239,7 @@ export const CreateWebhookEndpointRequestSchema = z.object({
   description: z.string().max(500).optional(),
   events: z.array(WebhookEventTypeSchema).min(1),
 });
-export type CreateWebhookEndpointRequest = z.infer<
-  typeof CreateWebhookEndpointRequestSchema
->;
+export type CreateWebhookEndpointRequest = z.infer<typeof CreateWebhookEndpointRequestSchema>;
 
 export const UpdateWebhookEndpointRequestSchema = z.object({
   url: z.string().url().optional(),
@@ -253,9 +248,7 @@ export const UpdateWebhookEndpointRequestSchema = z.object({
   is_active: z.boolean().optional(),
 });
 
-export const WebhookEndpointListResponseSchema = paginated(
-  WebhookEndpointSchema,
-);
+export const WebhookEndpointListResponseSchema = paginated(WebhookEndpointSchema);
 
 // --- Health -------------------------------------------------------------------
 

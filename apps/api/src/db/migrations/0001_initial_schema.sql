@@ -330,10 +330,8 @@ BEGIN
     -- or when the session variable is not set (migration/superuser context)
     EXECUTE format($POLICY$
       CREATE POLICY company_isolation ON %I
-        USING (
-          current_company_id() IS NULL
-          OR company_id = current_company_id()
-        )
+        USING (company_id = current_company_id())
+        WITH CHECK (company_id = current_company_id())
     $POLICY$, tbl);
   END LOOP;
 END $$;

@@ -1,7 +1,7 @@
 {
   "name": "@cs/web",
   "version": "0.1.0",
-  "description": "React 19 + Vite frontend – implemented in Stage 3",
+  "description": "React 19 + Vite frontend - implemented in Stage 3",
   "type": "module",
   "scripts": {
     "build": "vite build",
@@ -28,4 +28,3 @@
     "vite": "6.0.5"
   }
 }
-

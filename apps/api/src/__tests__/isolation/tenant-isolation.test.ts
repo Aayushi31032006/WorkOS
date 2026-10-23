@@ -16,7 +16,7 @@ import { setupTestDb, teardownTestDb, identityFor, seedUser } from "../helpers/t
 import { randomUUID } from "node:crypto";
 
 // Fixture identities
-const acmeOwner  = () => identityFor("acme-owner");
+const acmeOwner = () => identityFor("acme-owner");
 const acmeMember = () => identityFor("acme-member");
 const globexOwner = () => identityFor("globex-owner");
 const globexMember = () => identityFor("globex-member");
@@ -28,7 +28,7 @@ describe("Tenant Isolation", () => {
   beforeAll(async () => {
     await setupTestDb();
     // Seed all users needed
-    for (const tag of ["acme-owner","acme-member","globex-owner","globex-member"]) {
+    for (const tag of ["acme-owner", "acme-member", "globex-owner", "globex-member"]) {
       await seedUser(tag);
     }
     // Create one channel per company
@@ -122,21 +122,62 @@ describe("Tenant Isolation", () => {
     expect(result).toBeNull();
   });
 
+  // -- RLS enforcement verification (as restricted non-owner app_user) ----------
 
-  // -- RLS helper verification --------------------------------------------------
-  // Note: cs_user is the table owner and bypasses RLS (PostgreSQL design).
-  // Isolation is enforced by the repository and policy layers (tested above).
+  it("RLS: raw query as app_user without app.company_id returns 0 rows", async () => {
+    const { getAppUserSql } = await import("../helpers/testDb.js");
+    const appSql = getAppUserSql();
+    try {
+      const rows = await appSql`SELECT * FROM conversations`;
+      expect(rows.length).toBe(0);
+    } finally {
+      await appSql.end();
+    }
+  });
 
-  it("current_company_id() function returns correct UUID when session var is set", async () => {
-    const { getTestSql } = await import("../helpers/testDb.js");
-    const sql = getTestSql();
-    const companyId = acmeOwner().companyId;
-    // Use session-scoped set_config (false = persists for the session, not just local tx)
-    // and verify in the same round-trip using a combined query
-    const rows = await sql.unsafe(
-      "SELECT set_config('app.company_id', '" + companyId + "', false), " +
-      "current_company_id()::text AS cid"
-    );
-    expect(rows[0]?.cid).toBe(companyId);
+  it("RLS: raw query as app_user with Acme company_id sees Acme rows, zero Globex rows", async () => {
+    const { getAppUserSql } = await import("../helpers/testDb.js");
+    const appSql = getAppUserSql();
+    try {
+      const acmeCid = acmeOwner().companyId;
+      const globexCid = globexOwner().companyId;
+      await appSql.begin(async (tx) => {
+        await tx.unsafe(`SET LOCAL app.company_id = '${acmeCid}'`);
+        const rows = await tx`SELECT * FROM conversations`;
+        expect(rows.length).toBeGreaterThan(0);
+        for (const row of rows) {
+          expect(row.company_id).toBe(acmeCid);
+          expect(row.company_id).not.toBe(globexCid);
+        }
+        // Direct attempt to select Globex channel while in Acme context returns 0 rows
+        const target = await tx`SELECT * FROM conversations WHERE id = ${globexChannelId}`;
+        expect(target.length).toBe(0);
+      });
+    } finally {
+      await appSql.end();
+    }
+  });
+
+  it("RLS: raw query as app_user with Globex company_id cannot see Acme rows", async () => {
+    const { getAppUserSql } = await import("../helpers/testDb.js");
+    const appSql = getAppUserSql();
+    try {
+      const acmeCid = acmeOwner().companyId;
+      const globexCid = globexOwner().companyId;
+      await appSql.begin(async (tx) => {
+        await tx.unsafe(`SET LOCAL app.company_id = '${globexCid}'`);
+        const rows = await tx`SELECT * FROM conversations`;
+        expect(rows.length).toBeGreaterThan(0);
+        for (const row of rows) {
+          expect(row.company_id).toBe(globexCid);
+          expect(row.company_id).not.toBe(acmeCid);
+        }
+        // Direct attempt to select Acme channel while in Globex context returns 0 rows
+        const target = await tx`SELECT * FROM conversations WHERE id = ${acmeChannelId}`;
+        expect(target.length).toBe(0);
+      });
+    } finally {
+      await appSql.end();
+    }
   });
 });

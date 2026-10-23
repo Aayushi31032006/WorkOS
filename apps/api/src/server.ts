@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Fastify application factory.
  * Import and call buildApp() for tests; call start() for production.
  */
@@ -7,22 +7,27 @@ import fastifyCors from "@fastify/cors";
 import fastifyHelmet from "@fastify/helmet";
 import fastifyRateLimit from "@fastify/rate-limit";
 import fastifyWebsocket from "@fastify/websocket";
-import fastifyPlugin from "fastify-plugin";
 import { env } from "./env.js";
 import authPlugin from "./auth/plugin.js";
 import wsGateway from "./ws/gateway.js";
 import healthRoutes from "./routes/v1/health.js";
 import channelRoutes from "./routes/v1/channels.js";
+import membershipRoutes from "./routes/v1/memberships.js";
+import dmRoutes from "./routes/v1/dms.js";
 import messageRoutes from "./routes/v1/messages.js";
+import reactionRoutes from "./routes/v1/reactions.js";
+import readStateRoutes from "./routes/v1/readState.js";
+import draftRoutes from "./routes/v1/drafts.js";
 import { pubsub } from "./pubsub/index.js";
 
 export async function buildApp(opts?: { testing?: boolean }) {
   const app = Fastify({
     logger: opts?.testing
       ? false
-      : { level: env.LOG_LEVEL, transport: env.NODE_ENV === "development"
-          ? { target: "pino-pretty" }
-          : undefined },
+      : {
+          level: env.LOG_LEVEL,
+          transport: env.NODE_ENV === "development" ? { target: "pino-pretty" } : undefined,
+        },
     requestIdHeader: "x-request-id",
     genReqId: () => crypto.randomUUID(),
     trustProxy: true,
@@ -37,7 +42,7 @@ export async function buildApp(opts?: { testing?: boolean }) {
   await app.register(fastifyCors, {
     origin: env.CORS_ORIGINS.split(",").map((o) => o.trim()),
     credentials: true,
-    methods: ["GET","POST","PATCH","PUT","DELETE","OPTIONS"],
+    methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
   });
 
   // -- Rate limiting ---------------------------------------------------------
@@ -72,7 +77,12 @@ export async function buildApp(opts?: { testing?: boolean }) {
   // -- Routes ----------------------------------------------------------------
   await app.register(healthRoutes);
   await app.register(channelRoutes);
+  await app.register(membershipRoutes);
+  await app.register(dmRoutes);
   await app.register(messageRoutes);
+  await app.register(reactionRoutes);
+  await app.register(readStateRoutes);
+  await app.register(draftRoutes);
   await app.register(wsGateway);
 
   // -- Lifecycle: connect pubsub on start ------------------------------------

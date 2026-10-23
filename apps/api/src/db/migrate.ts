@@ -1,5 +1,5 @@
 /**
- * Migration runner – executes all *.sql migrations via psql.
+ * Migration runner ï¿½ executes all *.sql migrations via psql.
  * Uses psql for full PL/pgSQL support (DO blocks, dollar-quoting, etc).
  * Run: pnpm --filter @cs/api db:migrate
  */
@@ -10,8 +10,11 @@ import { execFileSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DATABASE_URL = process.env["DATABASE_URL"];
-if (!DATABASE_URL) { console.error("DATABASE_URL required"); process.exit(1); }
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  console.error("DATABASE_URL required");
+  process.exit(1);
+}
 
 // Parse connection string
 const url = new URL(DATABASE_URL);
@@ -31,7 +34,11 @@ async function migrate() {
 
   const env = {
     ...process.env,
-    PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD,
+    PGHOST,
+    PGPORT,
+    PGDATABASE,
+    PGUSER,
+    PGPASSWORD,
   };
 
   for (const file of files) {

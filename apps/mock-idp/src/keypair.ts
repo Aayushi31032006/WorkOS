@@ -6,12 +6,12 @@
  */
 import { generateKeyPair, exportJWK } from "jose";
 
-// jose v6 key types are opaque – use unknown for storage, cast at call sites
+// jose v6 key types are opaque ï¿½ use unknown for storage, cast at call sites
 export interface KeyPairEntry {
   kid: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   privateKey: unknown;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   publicKey: unknown;
   publicJwk: Record<string, unknown>;
   createdAt: Date;
@@ -26,8 +26,8 @@ class KeyStore {
     });
 
     const kid = `mock-${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`;
-    // exportJWK accepts CryptoKey from Web Crypto – cast is safe here
-    const publicJwk = await exportJWK(publicKey as Parameters<typeof exportJWK>[0]);
+    // exportJWK accepts CryptoKey from Web Crypto ï¿½ cast is safe here
+    const publicJwk = await exportJWK(publicKey);
 
     const entry: KeyPairEntry = {
       kid,
@@ -62,7 +62,5 @@ export const keyStore = new KeyStore();
 
 export async function initKeyStore(): Promise<void> {
   await keyStore.generateKey();
-  console.error(
-    `[mock-idp] Key store initialized with kid: ${keyStore.getCurrentKey().kid}`,
-  );
+  console.error(`[mock-idp] Key store initialized with kid: ${keyStore.getCurrentKey().kid}`);
 }

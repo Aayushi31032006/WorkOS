@@ -7,7 +7,7 @@
  */
 
 export const PERMISSIONS = {
-  /** Base access – required for any system interaction */
+  /** Base access ï¿½ required for any system interaction */
   ACCESS: "communication.access",
 
   /** Create public/department/project channels */
@@ -41,17 +41,14 @@ export const PERMISSIONS = {
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
 /** All permission strings as a tuple for Zod enum */
-export const PERMISSION_VALUES = Object.values(PERMISSIONS) as [
-  Permission,
-  ...Permission[],
-];
+export const PERMISSION_VALUES = Object.values(PERMISSIONS) as [Permission, ...Permission[]];
 
 /**
  * RBAC role ? default permissions map.
  * Actual permissions come from JWT claims, this is informational.
  */
 export const ROLE_DEFAULTS = {
-  owner: Object.values(PERMISSIONS) as Permission[],
+  owner: Object.values(PERMISSIONS),
   admin: [
     PERMISSIONS.ACCESS,
     PERMISSIONS.CHANNEL_CREATE,

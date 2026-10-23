@@ -25,6 +25,16 @@ export default fp(async (fastify: FastifyInstance) => {
   const JWKS = createRemoteJWKSet(new URL(env.JWKS_URI));
 
   async function verifyToken(request: FastifyRequest): Promise<void> {
+    if (env.NODE_ENV === "test" && request.headers["x-test-identity"]) {
+      try {
+        request.identity = JSON.parse(
+          request.headers["x-test-identity"] as string,
+        ) as RequestIdentity;
+        return;
+      } catch {
+        // fallback to standard token verification
+      }
+    }
     const authHeader = request.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
       const err = Object.assign(new Error("Missing Bearer token"), { statusCode: 401 });

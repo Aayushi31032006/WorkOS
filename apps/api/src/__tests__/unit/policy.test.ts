@@ -27,12 +27,15 @@ const guestIdentity: RequestIdentity = {
 
 describe("Policy", () => {
   it("require: passes when permission is present", () => {
-    expect(() => policy.require(adminIdentity, PERMISSIONS.CHANNEL_CREATE)).not.toThrow();
+    expect(() => {
+      policy.require(adminIdentity, PERMISSIONS.CHANNEL_CREATE);
+    }).not.toThrow();
   });
 
   it("require: throws AuthorizationError when permission is missing", () => {
-    expect(() => policy.require(guestIdentity, PERMISSIONS.CHANNEL_CREATE))
-      .toThrow(AuthorizationError);
+    expect(() => {
+      policy.require(guestIdentity, PERMISSIONS.CHANNEL_CREATE);
+    }).toThrow(AuthorizationError);
   });
 
   it("can: returns true for held permission", () => {
@@ -44,12 +47,15 @@ describe("Policy", () => {
   });
 
   it("requireSameCompany: passes for same company", () => {
-    expect(() => policy.requireSameCompany(adminIdentity, "c-acme")).not.toThrow();
+    expect(() => {
+      policy.requireSameCompany(adminIdentity, "c-acme");
+    }).not.toThrow();
   });
 
   it("requireSameCompany: throws for different company", () => {
-    expect(() => policy.requireSameCompany(adminIdentity, "c-globex"))
-      .toThrow(AuthorizationError);
+    expect(() => {
+      policy.requireSameCompany(adminIdentity, "c-globex");
+    }).toThrow(AuthorizationError);
   });
 
   it("guest has ACCESS but not CHANNEL_CREATE", () => {

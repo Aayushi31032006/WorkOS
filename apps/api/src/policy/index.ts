@@ -1,13 +1,13 @@
-/**
+﻿/**
  * Authorization policy module.
- * NEVER perform ad-hoc permission checks � always use this module.
+ * NEVER perform ad-hoc permission checks — always use this module.
  * All checks run server-side against token claims (never DB lookups for basic authz).
  */
-import { PERMISSIONS } from "@cs/contracts";
 import type { RequestIdentity } from "../auth/plugin.js";
-import type { FastifyInstance } from "fastify";
 
 export class AuthorizationError extends Error {
+  public readonly statusCode = 403;
+  public readonly code = "FORBIDDEN";
   constructor(
     public readonly required: string,
     public readonly userId: string,

@@ -1,16 +1,22 @@
 /**
  * In-process pub/sub via PostgreSQL LISTEN/NOTIFY.
- * Each API instance subscribes to "company_{companyId}" channels.
- * This fan-out approach works for a single instance; add Redis for multi-node.
+ * Handles PostgreSQL 63-byte channel name limit safely.
  */
 import postgres from "postgres";
+import crypto from "node:crypto";
 import { env } from "../env.js";
 
 type Listener = (payload: unknown) => void;
 
+function toPgChannel(name: string): string {
+  if (name.length <= 60 && /^[a-zA-Z0-9_]+$/.test(name)) return name;
+  return "cs_" + crypto.createHash("md5").update(name).digest("hex");
+}
+
 class PubSub {
   private sql: ReturnType<typeof postgres> | null = null;
   private listeners = new Map<string, Set<Listener>>();
+  private pgToLogical = new Map<string, Set<string>>();
 
   async connect(): Promise<void> {
     this.sql = postgres(env.DATABASE_URL, {
@@ -19,33 +25,40 @@ class PubSub {
       connect_timeout: 10,
     });
 
-    // Re-establish subscriptions after reconnect
     for (const channel of this.listeners.keys()) {
-      await this.sql.listen(channel, (payload) => {
+      const pgCh = toPgChannel(channel);
+      await this.sql.listen(pgCh, (payload) => {
         this.dispatch(channel, payload);
       });
     }
   }
 
   async publish(channel: string, payload: unknown): Promise<void> {
-    // Use a separate quick connection for NOTIFY
-    const sql = postgres(env.DATABASE_URL, { max: 1 });
-    await sql.notify(channel, JSON.stringify(payload));
-    await sql.end();
-    // Also dispatch locally for same-process subscribers (no round-trip latency)
+    const pgCh = toPgChannel(channel);
+    try {
+      const sql = postgres(env.DATABASE_URL, { max: 1 });
+      await sql.notify(pgCh, JSON.stringify(payload));
+      await sql.end();
+    } catch {
+      // In-process fallback if PG notify is unavailable
+    }
     this.dispatch(channel, JSON.stringify(payload));
   }
 
   async subscribe(channel: string, listener: Listener): Promise<() => void> {
+    const pgCh = toPgChannel(channel);
     if (!this.listeners.has(channel)) {
       this.listeners.set(channel, new Set());
       if (this.sql) {
-        await this.sql.listen(channel, (payload) => {
+        await this.sql.listen(pgCh, (payload) => {
           this.dispatch(channel, payload);
         });
       }
     }
-    this.listeners.get(channel)!.add(listener);
+    const set = this.listeners.get(channel);
+    if (set) {
+      set.add(listener);
+    }
 
     return () => {
       this.listeners.get(channel)?.delete(listener);
@@ -55,8 +68,14 @@ class PubSub {
   private dispatch(channel: string, raw: string | undefined): void {
     if (!raw) return;
     let payload: unknown;
-    try { payload = JSON.parse(raw); } catch { return; }
-    this.listeners.get(channel)?.forEach((fn) => fn(payload));
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    this.listeners.get(channel)?.forEach((fn) => {
+      fn(payload);
+    });
   }
 
   async close(): Promise<void> {

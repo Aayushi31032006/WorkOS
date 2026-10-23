@@ -10,7 +10,7 @@ import type { RequestIdentity } from "../../auth/plugin.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const TEST_DB_URL =
-  process.env["TEST_DATABASE_URL"] ??
+  process.env.TEST_DATABASE_URL ??
   "postgresql://cs_user:cs_pass@localhost:5432/communication_system_test";
 
 let _sql: ReturnType<typeof postgres> | null = null;
@@ -42,12 +42,27 @@ function runPsql(file: string, dbUrl: string) {
 
 export async function setupTestDb(): Promise<void> {
   const dropFile = join(__dirname, "../../db/migrations/_drop_all.sql");
-  const migFile  = join(__dirname, "../../db/migrations/0001_initial_schema.sql");
-  try { runPsql(dropFile, TEST_DB_URL); } catch { /* ignore */ }
+  const migFile = join(__dirname, "../../db/migrations/0001_initial_schema.sql");
+  try {
+    runPsql(dropFile, TEST_DB_URL);
+  } catch {
+    /* ignore */
+  }
   runPsql(migFile, TEST_DB_URL);
 
   _sql = postgres(TEST_DB_URL, { max: 5, idle_timeout: 5 });
   _db = drizzle(_sql, { schema });
+
+  await _sql`GRANT USAGE ON SCHEMA public TO app_user`;
+  await _sql`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user`;
+  await _sql`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO app_user`;
+}
+
+export function getAppUserSql() {
+  const url = new URL(TEST_DB_URL);
+  url.username = "app_user";
+  url.password = "app_pass";
+  return postgres(url.toString(), { max: 1 });
 }
 
 export async function teardownTestDb(): Promise<void> {
@@ -58,11 +73,12 @@ export async function teardownTestDb(): Promise<void> {
 
 export function identityFor(tag: string): RequestIdentity {
   const user = ALL_USERS.find((u) => u.tag === tag);
-  if (!user) throw new Error(`Unknown tag: ${tag}. Available: ${ALL_USERS.map((u) => u.tag).join(", ")}`);
+  if (!user)
+    throw new Error(`Unknown tag: ${tag}. Available: ${ALL_USERS.map((u) => u.tag).join(", ")}`);
   return {
     userId: user.id,
     companyId: user.company_id,
-    permissions: user.permissions as string[],
+    permissions: user.permissions,
     name: user.name,
     avatarUrl: user.avatar_url,
   };
@@ -73,9 +89,12 @@ export async function seedUser(tag: string): Promise<void> {
   if (!user) throw new Error(`Unknown tag: ${tag}`);
   const db = getTestDb();
   const { sql } = await import("drizzle-orm");
-  await db.execute(
-    sql`INSERT INTO users(id, company_id, name, avatar_url, department_ids, project_ids)
-        VALUES(${user.id}, ${user.company_id}, ${user.name}, NULL, '{}', '{}')
-        ON CONFLICT(id) DO NOTHING`,
-  );
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT set_config('app.company_id', ${user.company_id}, true)`);
+    await tx.execute(
+      sql`INSERT INTO users(id, company_id, name, avatar_url, department_ids, project_ids)
+          VALUES(${user.id}, ${user.company_id}, ${user.name}, NULL, '{}', '{}')
+          ON CONFLICT(id) DO NOTHING`,
+    );
+  });
 }
