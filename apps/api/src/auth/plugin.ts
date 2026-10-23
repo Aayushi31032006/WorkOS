@@ -1,4 +1,4 @@
-import fp from "fastify-plugin";
+﻿import fp from "fastify-plugin";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { TokenClaimsSchema } from "@cs/contracts";
@@ -76,7 +76,16 @@ export default fp(async (fastify: FastifyInstance) => {
   fastify.decorate("authenticate", verifyToken);
 
   fastify.addHook("onRequest", async (request) => {
-    if (request.url.startsWith("/health")) return;
+    const path = request.url.split("?")[0] ?? "";
+    if (
+      path.startsWith("/health") ||
+      path.startsWith("/v1/health") ||
+      path.startsWith("/ws") ||
+      path.startsWith("/v1/ws") ||
+      path.startsWith("/documentation")
+    ) {
+      return;
+    }
     await verifyToken(request);
   });
 });

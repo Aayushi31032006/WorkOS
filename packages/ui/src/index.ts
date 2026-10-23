@@ -1,2 +1,11 @@
-// Stage 3 placeholder
-export {};
+export * from "./motion.js";
+export * from "./primitives/Button.js";
+export * from "./primitives/Input.js";
+export * from "./primitives/Dialog.js";
+export * from "./primitives/Popover.js";
+export * from "./primitives/Tooltip.js";
+export * from "./primitives/DropdownMenu.js";
+export * from "./primitives/Avatar.js";
+export * from "./primitives/Badge.js";
+export * from "./primitives/Skeleton.js";
+export * from "./primitives/Toast.js";

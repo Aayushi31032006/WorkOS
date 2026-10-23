@@ -21,8 +21,8 @@ export const COMPANY_ACME: SyntheticCompany = {
     { id: "dddddddd-dddd-4000-a000-000000000013", name: "Design" },
   ],
   project_ids: [
-    { id: "pppppppp-pppp-4000-a000-000000000021", name: "Project Phoenix" },
-    { id: "pppppppp-pppp-4000-a000-000000000022", name: "Project Atlas" },
+    { id: "11111111-1111-4000-a000-000000000021", name: "Project Phoenix" },
+    { id: "11111111-1111-4000-a000-000000000022", name: "Project Atlas" },
   ],
 };
 
@@ -35,7 +35,7 @@ export const COMPANY_GLOBEX: SyntheticCompany = {
     { id: "dddddddd-dddd-4000-b000-000000000015", name: "Operations" },
   ],
   project_ids: [
-    { id: "pppppppp-pppp-4000-b000-000000000023", name: "Project Omega" },
+    { id: "22222222-2222-4000-b000-000000000023", name: "Project Omega" },
   ],
 };
 

@@ -15,15 +15,24 @@
   "dependencies": {
     "@cs/contracts": "workspace:*",
     "@cs/sdk": "workspace:*",
-    "@cs/ui": "workspace:*"
+    "@cs/ui": "workspace:*",
+    "@tanstack/react-virtual": "^3.14.22",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.61.0",
+    "motion": "^14.6.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
     "@playwright/test": "1.49.1",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "22.10.2",
     "@types/react": "19.0.1",
     "@types/react-dom": "19.0.1",
     "@vitejs/plugin-react": "4.3.4",
     "rimraf": "6.0.1",
+    "tailwindcss": "^4.3.3",
     "typescript": "5.7.3",
     "vite": "6.0.5"
   }

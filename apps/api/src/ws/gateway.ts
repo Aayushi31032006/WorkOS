@@ -2,16 +2,14 @@
  * WebSocket gateway.
  *
  * Protocol:
- *  1. Client connects then immediately sends { type: "auth", token: "<jwt>" }
+ *  1. Client connects with ?token=<jwt> OR sends { type: "auth", token: "<jwt>" }
  *  2. Server replies { type: "auth_ack", userId, companyId } or closes with 4401
  *  3. Client subscribes: { type: "subscribe", conversationId, cursor?: number }
  *     - Server validates membership, then streams ServerEvents for that conversation
- *  4. Client sends { type: "ping" } ? server replies { type: "pong" }
+ *  4. Client sends { type: "ping" } -> server replies { type: "pong" }
  *  5. On disconnect, all subscriptions are cleaned up
- *
- * Deduplication: WS events carry `seq` + `id`; client tracks last seen seq per conversation.
  */
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import fp from "fastify-plugin";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { TokenClaimsSchema } from "@cs/contracts";
@@ -37,10 +35,16 @@ type ClientMessage = AuthMessage | SubscribeMessage | PingMessage;
 export default fp(async (fastify: FastifyInstance) => {
   const JWKS = createRemoteJWKSet(new URL(env.JWKS_URI));
 
-  fastify.get("/v1/ws", { websocket: true }, (socket, _req) => {
+  const handleConnection = (socket: any, req: FastifyRequest) => {
     let identity: RequestIdentity | null = null;
     const unsubs: (() => void)[] = [];
     const AUTH_TIMEOUT_MS = 10_000;
+
+    function send(data: unknown): void {
+      if (socket.readyState === socket.OPEN) {
+        socket.send(JSON.stringify(data));
+      }
+    }
 
     // Close if client doesn't auth within 10 seconds
     const authTimer = setTimeout(() => {
@@ -49,10 +53,36 @@ export default fp(async (fastify: FastifyInstance) => {
       }
     }, AUTH_TIMEOUT_MS);
 
-    function send(data: unknown): void {
-      if (socket.readyState === socket.OPEN) {
-        socket.send(JSON.stringify(data));
+    const authenticateToken = async (rawToken: string) => {
+      try {
+        const { payload } = await jwtVerify(rawToken, JWKS, {
+          issuer: env.JWT_ISSUER,
+          audience: env.JWT_AUDIENCE,
+          algorithms: ["RS256"],
+          maxTokenAge: "15m",
+        });
+        const claims = TokenClaimsSchema.safeParse(payload);
+        if (!claims.success) throw new Error("Invalid claims");
+        identity = {
+          userId: claims.data.sub,
+          companyId: claims.data.company_id,
+          permissions: claims.data.permissions,
+          name: claims.data.name,
+          avatarUrl: claims.data.avatar_url ?? null,
+        };
+        clearTimeout(authTimer);
+        send({ type: "auth_ack", userId: identity.userId, companyId: identity.companyId });
+        return true;
+      } catch {
+        socket.close(4401, "Authentication failed");
+        return false;
       }
+    };
+
+    // Auto-authenticate if token passed in URL query
+    const query = req.query as Record<string, string | undefined>;
+    if (query?.token) {
+      void authenticateToken(query.token);
     }
 
     socket.on("message", (raw: Buffer | string) => {
@@ -71,27 +101,7 @@ export default fp(async (fastify: FastifyInstance) => {
             send({ type: "error", code: "ALREADY_AUTHED" });
             return;
           }
-          try {
-            const { payload } = await jwtVerify(msg.token, JWKS, {
-              issuer: env.JWT_ISSUER,
-              audience: env.JWT_AUDIENCE,
-              algorithms: ["RS256"],
-              maxTokenAge: "15m",
-            });
-            const claims = TokenClaimsSchema.safeParse(payload);
-            if (!claims.success) throw new Error("Invalid claims");
-            identity = {
-              userId: claims.data.sub,
-              companyId: claims.data.company_id,
-              permissions: claims.data.permissions,
-              name: claims.data.name,
-              avatarUrl: claims.data.avatar_url ?? null,
-            };
-            clearTimeout(authTimer);
-            send({ type: "auth_ack", userId: identity.userId, companyId: identity.companyId });
-          } catch {
-            socket.close(4401, "Authentication failed");
-          }
+          await authenticateToken(msg.token);
           return;
         }
 
@@ -102,7 +112,6 @@ export default fp(async (fastify: FastifyInstance) => {
 
         // -- subscribe ------------------------------------------------------------
         if (msg.type === "subscribe") {
-          // Verify membership before subscribing
           const isMember = await conversationsRepo.isMember(identity, msg.conversationId);
           if (!isMember) {
             send({ type: "error", code: "NOT_A_MEMBER", conversationId: msg.conversationId });
@@ -135,5 +144,8 @@ export default fp(async (fastify: FastifyInstance) => {
       clearTimeout(authTimer);
       for (const unsub of unsubs) unsub();
     });
-  });
+  };
+
+  fastify.get("/v1/ws", { websocket: true }, handleConnection);
+  fastify.get("/ws", { websocket: true }, handleConnection);
 });

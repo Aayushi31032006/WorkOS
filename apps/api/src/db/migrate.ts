@@ -1,5 +1,5 @@
 /**
- * Migration runner � executes all *.sql migrations via psql.
+ * Migration runner - executes all *.sql migrations via psql.
  * Uses psql for full PL/pgSQL support (DO blocks, dollar-quoting, etc).
  * Run: pnpm --filter @cs/api db:migrate
  */
@@ -7,6 +7,7 @@ import { readdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -16,13 +17,23 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-// Parse connection string
 const url = new URL(DATABASE_URL);
 const PGHOST = url.hostname;
 const PGPORT = url.port || "5432";
 const PGDATABASE = url.pathname.slice(1);
 const PGUSER = url.username;
 const PGPASSWORD = url.password;
+
+function findPsql(): string {
+  if (process.env.PSQL_PATH && existsSync(process.env.PSQL_PATH)) {
+    return process.env.PSQL_PATH;
+  }
+  const defaultWinPsql = "C:\\Program Files\\PostgreSQL\\16\\bin\\psql.exe";
+  if (existsSync(defaultWinPsql)) {
+    return defaultWinPsql;
+  }
+  return "psql";
+}
 
 async function migrate() {
   const migrationsDir = join(__dirname, "migrations");
@@ -41,14 +52,15 @@ async function migrate() {
     PGPASSWORD,
   };
 
+  const psqlBin = findPsql();
+
   for (const file of files) {
     const filePath = join(migrationsDir, file);
-    console.log(`  ? ${file}`);
-    execFileSync("psql", ["-f", filePath, "-v", "ON_ERROR_STOP=1"], {
+    execFileSync(psqlBin, ["-f", filePath, "-v", "ON_ERROR_STOP=1"], {
       env,
       stdio: ["ignore", "pipe", "pipe"],
     });
-    console.log(`  ? ${file}`);
+    console.log(`  ✓ ${file}`);
   }
   console.log("Migrations complete.");
 }
