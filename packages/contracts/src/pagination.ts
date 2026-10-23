@@ -34,12 +34,12 @@ export const PageInfoSchema = z.object({
 export type PageInfo = z.infer<typeof PageInfoSchema>;
 
 /** Encode a cursor from a {seq, id} pair */
-export function encodeCursor(payload: { seq: number; id: string }): string {
+export function encodeCursor(payload: Record<string, unknown>): string {
   return Buffer.from(JSON.stringify(payload)).toString("base64url");
 }
 
 /** Decode and validate a cursor string */
-export function decodeCursor(cursor: string): { seq: number; id: string } {
+export function decodeCursor(cursor: string): Record<string, unknown> {
   try {
     const decoded = JSON.parse(
       Buffer.from(cursor, "base64url").toString("utf-8"),
@@ -57,3 +57,4 @@ export function decodeCursor(cursor: string): { seq: number; id: string } {
     throw new Error("INVALID_CURSOR");
   }
 }
+

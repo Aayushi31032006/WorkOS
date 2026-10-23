@@ -26,7 +26,7 @@ export interface SyntheticUser {
 // --- Acme Corp Users ---------------------------------------------------------
 
 export const ALICE: SyntheticUser = {
-  id: "u0000000-0000-4000-a000-000000000001",
+  id: "00000001-0000-4000-a000-000000000001",
   company_id: COMPANY_ACME.id,
   name: "Alice Chen",
   email: "alice@acme.example",
@@ -45,7 +45,7 @@ export const ALICE: SyntheticUser = {
 };
 
 export const BOB: SyntheticUser = {
-  id: "u0000000-0000-4000-a000-000000000002",
+  id: "00000001-0000-4000-a000-000000000002",
   company_id: COMPANY_ACME.id,
   name: "Bob Martinez",
   email: "bob@acme.example",
@@ -58,7 +58,7 @@ export const BOB: SyntheticUser = {
 };
 
 export const CAROL: SyntheticUser = {
-  id: "u0000000-0000-4000-a000-000000000003",
+  id: "00000001-0000-4000-a000-000000000003",
   company_id: COMPANY_ACME.id,
   name: "Carol Thompson",
   email: "carol@acme.example",
@@ -71,7 +71,7 @@ export const CAROL: SyntheticUser = {
 };
 
 export const DAVE: SyntheticUser = {
-  id: "u0000000-0000-4000-a000-000000000004",
+  id: "00000001-0000-4000-a000-000000000004",
   company_id: COMPANY_ACME.id,
   name: "Dave Kim",
   email: "dave@acme.example",
@@ -84,7 +84,7 @@ export const DAVE: SyntheticUser = {
 };
 
 export const EVE_BOT: SyntheticUser = {
-  id: "u0000000-0000-4000-a000-000000000005",
+  id: "00000001-0000-4000-a000-000000000005",
   company_id: COMPANY_ACME.id,
   name: "Eve (CI Bot)",
   email: "eve-bot@acme.example",
@@ -99,7 +99,7 @@ export const EVE_BOT: SyntheticUser = {
 // --- Globex Industries Users --------------------------------------------------
 
 export const FRANK: SyntheticUser = {
-  id: "u0000000-0000-4000-b000-000000000006",
+  id: "00000002-0000-4000-b000-000000000006",
   company_id: COMPANY_GLOBEX.id,
   name: "Frank Burns",
   email: "frank@globex.example",
@@ -112,7 +112,7 @@ export const FRANK: SyntheticUser = {
 };
 
 export const GRACE: SyntheticUser = {
-  id: "u0000000-0000-4000-b000-000000000007",
+  id: "00000002-0000-4000-b000-000000000007",
   company_id: COMPANY_GLOBEX.id,
   name: "Grace Hopper",
   email: "grace@globex.example",
@@ -125,7 +125,7 @@ export const GRACE: SyntheticUser = {
 };
 
 export const HECTOR: SyntheticUser = {
-  id: "u0000000-0000-4000-b000-000000000008",
+  id: "00000002-0000-4000-b000-000000000008",
   company_id: COMPANY_GLOBEX.id,
   name: "Hector Rodriguez",
   email: "hector@globex.example",
@@ -138,7 +138,7 @@ export const HECTOR: SyntheticUser = {
 };
 
 export const IVY: SyntheticUser = {
-  id: "u0000000-0000-4000-b000-000000000009",
+  id: "00000002-0000-4000-b000-000000000009",
   company_id: COMPANY_GLOBEX.id,
   name: "Ivy Lee",
   email: "ivy@globex.example",
@@ -155,7 +155,7 @@ export const IVY: SyntheticUser = {
 };
 
 export const JAMES: SyntheticUser = {
-  id: "u0000000-0000-4000-b000-000000000010",
+  id: "00000002-0000-4000-b000-000000000010",
   company_id: COMPANY_GLOBEX.id,
   name: "James Wright",
   email: "james@globex.example",
@@ -175,3 +175,13 @@ export const ALL_USERS = [...ACME_USERS, ...GLOBEX_USERS] as const;
 export function findUserById(id: string): SyntheticUser | undefined {
   return ALL_USERS.find((u) => u.id === id);
 }
+
+/** Lookup user by tag across all synthetic users */
+export function findUserByTag(tag: string): SyntheticUser | undefined {
+  return ALL_USERS.find((u) => u.tag === tag);
+}
+
+/** Alias for backwards compat */
+export const syntheticUsers = ALL_USERS;
+
+
