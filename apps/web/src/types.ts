@@ -1,4 +1,4 @@
-export interface User {
+﻿export interface User {
   id: string;
   name: string;
   avatar_url: string | null;
@@ -28,17 +28,17 @@ export interface Conversation {
   kind: "company" | "department" | "project" | "public" | "private" | "announcement" | null;
   is_archived: boolean;
   is_announcement_only: boolean;
-  member_count: number;
+  member_count?: number;
   unread_count?: number;
   last_message_at: string | null;
-  other_user?: User;
+  dm_user?: User;
 }
 
 export interface ReactionSummary {
   emoji: string;
   count: number;
   user_ids: string[];
-  reacted_by_me: boolean;
+  reacted_by_me?: boolean;
 }
 
 export interface Message {
@@ -46,6 +46,9 @@ export interface Message {
   conversation_id: string;
   author_id: string;
   author?: User;
+  author_name?: string;
+  author_avatar_url?: string | null;
+  is_system?: boolean;
   client_msg_id: string;
   seq: number;
   body: string;
@@ -68,6 +71,10 @@ export interface Notification {
   conversation_id: string;
   message_id: string | null;
   actor_id: string | null;
+  actor_name?: string | null;
+  actor_avatar_url?: string | null;
+  conversation_name?: string | null;
+  message_snippet?: string | null;
   is_read: boolean;
   created_at: string;
 }

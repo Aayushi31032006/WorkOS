@@ -8,6 +8,7 @@ interface WebSocketContextType {
   lastEvent: { type: string; payload: unknown; ts: string } | null;
   sendJson: (data: unknown) => void;
   subscribe: (conversationId: string) => void;
+  unsubscribe: (conversationId: string) => void;
 }
 
 const WebSocketContext = createContext<WebSocketContextType | null>(null);
@@ -18,6 +19,31 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   const [lastEvent, setLastEvent] = useState<{ type: string; payload: unknown; ts: string } | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
+  const activeSubsRef = useRef<Set<string>>(new Set());
+
+  const sendJson = useCallback((data: unknown) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(data));
+    }
+  }, []);
+
+  const subscribe = useCallback(
+    (conversationId: string) => {
+      activeSubsRef.current.add(conversationId);
+      console.info(`[WS Client] Sending subscribe for: ${conversationId}`);
+      sendJson({ type: "subscribe", conversationId });
+    },
+    [sendJson],
+  );
+
+  const unsubscribe = useCallback(
+    (conversationId: string) => {
+      activeSubsRef.current.delete(conversationId);
+      console.info(`[WS Client] Sending unsubscribe for: ${conversationId}`);
+      sendJson({ type: "unsubscribe", conversationId });
+    },
+    [sendJson],
+  );
 
   const connect = useCallback(() => {
     if (!token) {
@@ -38,7 +64,7 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      // Send auth frame explicitly as well for redundancy
+      // Send auth frame explicitly as well
       ws.send(JSON.stringify({ type: "auth", token }));
     };
 
@@ -47,7 +73,18 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
         const parsed = JSON.parse(event.data);
         if (parsed.type === "auth_ack") {
           setStatus("connected");
+          console.info("[WS Client] Authenticated. Restoring subscriptions:", Array.from(activeSubsRef.current));
+          for (const convId of activeSubsRef.current) {
+            ws.send(JSON.stringify({ type: "subscribe", conversationId: convId }));
+          }
+        } else if (parsed.type === "subscribed") {
+          console.info(`[WS Client] Subscribed ack: ${parsed.conversationId}`);
+        } else if (parsed.type === "unsubscribed") {
+          console.info(`[WS Client] Unsubscribed ack: ${parsed.conversationId}`);
+        } else if (parsed.type === "error") {
+          console.warn("[WS Client] Server error:", parsed);
         }
+
         setLastEvent({
           type: parsed.type ?? "message",
           payload: parsed,
@@ -89,18 +126,8 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
     };
   }, [connect]);
 
-  const sendJson = useCallback((data: unknown) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(data));
-    }
-  }, []);
-
-  const subscribe = useCallback((conversationId: string) => {
-    sendJson({ type: "subscribe", conversationId });
-  }, [sendJson]);
-
   return (
-    <WebSocketContext.Provider value={{ status, lastEvent, sendJson, subscribe }}>
+    <WebSocketContext.Provider value={{ status, lastEvent, sendJson, subscribe, unsubscribe }}>
       {children}
     </WebSocketContext.Provider>
   );

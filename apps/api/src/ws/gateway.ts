@@ -5,9 +5,10 @@
  *  1. Client connects with ?token=<jwt> OR sends { type: "auth", token: "<jwt>" }
  *  2. Server replies { type: "auth_ack", userId, companyId } or closes with 4401
  *  3. Client subscribes: { type: "subscribe", conversationId, cursor?: number }
- *     - Server validates membership, then streams ServerEvents for that conversation
- *  4. Client sends { type: "ping" } -> server replies { type: "pong" }
- *  5. On disconnect, all subscriptions are cleaned up
+ *     - Server validates/ensures membership, then streams ServerEvents for that conversation
+ *  4. Client unsubscribes: { type: "unsubscribe", conversationId }
+ *  5. Client sends { type: "ping" } -> server replies { type: "pong" }
+ *  6. On disconnect, all subscriptions are cleaned up
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import fp from "fastify-plugin";
@@ -27,17 +28,21 @@ interface SubscribeMessage {
   conversationId: string;
   cursor?: number;
 }
+interface UnsubscribeMessage {
+  type: "unsubscribe";
+  conversationId: string;
+}
 interface PingMessage {
   type: "ping";
 }
-type ClientMessage = AuthMessage | SubscribeMessage | PingMessage;
+type ClientMessage = AuthMessage | SubscribeMessage | UnsubscribeMessage | PingMessage;
 
 export default fp(async (fastify: FastifyInstance) => {
   const JWKS = createRemoteJWKSet(new URL(env.JWKS_URI));
 
   const handleConnection = (socket: any, req: FastifyRequest) => {
     let identity: RequestIdentity | null = null;
-    const unsubs: (() => void)[] = [];
+    const convSubs = new Map<string, () => void>();
     const AUTH_TIMEOUT_MS = 10_000;
 
     function send(data: unknown): void {
@@ -112,8 +117,17 @@ export default fp(async (fastify: FastifyInstance) => {
 
         // -- subscribe ------------------------------------------------------------
         if (msg.type === "subscribe") {
+          // If already subscribed, acknowledge immediately
+          if (convSubs.has(msg.conversationId)) {
+            send({ type: "subscribed", conversationId: msg.conversationId, cursor: msg.cursor ?? 0 });
+            return;
+          }
+
+          // Ensure membership (auto-joins if public/company channel)
+          await conversationsRepo.ensureMembership(identity, msg.conversationId);
           const isMember = await conversationsRepo.isMember(identity, msg.conversationId);
           if (!isMember) {
+            console.warn(`[WS Server] Subscription rejected (not member): conv=${msg.conversationId} user=${identity.name} (${identity.userId})`);
             send({ type: "error", code: "NOT_A_MEMBER", conversationId: msg.conversationId });
             return;
           }
@@ -122,8 +136,21 @@ export default fp(async (fastify: FastifyInstance) => {
           const unsub = await pubsub.subscribe(channel, (event) => {
             send(event);
           });
-          unsubs.push(unsub);
+          convSubs.set(msg.conversationId, unsub);
+          console.log(`[WS Server] Subscribed: conv=${msg.conversationId} user=${identity.name} (${identity.userId})`);
           send({ type: "subscribed", conversationId: msg.conversationId, cursor: msg.cursor ?? 0 });
+          return;
+        }
+
+        // -- unsubscribe ----------------------------------------------------------
+        if (msg.type === "unsubscribe") {
+          const unsub = convSubs.get(msg.conversationId);
+          if (unsub) {
+            unsub();
+            convSubs.delete(msg.conversationId);
+            console.log(`[WS Server] Unsubscribed: conv=${msg.conversationId} user=${identity.name}`);
+          }
+          send({ type: "unsubscribed", conversationId: msg.conversationId });
           return;
         }
 
@@ -137,12 +164,14 @@ export default fp(async (fastify: FastifyInstance) => {
 
     socket.on("close", () => {
       clearTimeout(authTimer);
-      for (const unsub of unsubs) unsub();
+      for (const unsub of convSubs.values()) unsub();
+      convSubs.clear();
     });
 
     socket.on("error", () => {
       clearTimeout(authTimer);
-      for (const unsub of unsubs) unsub();
+      for (const unsub of convSubs.values()) unsub();
+      convSubs.clear();
     });
   };
 

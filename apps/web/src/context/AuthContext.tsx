@@ -10,12 +10,12 @@ export interface DemoUser {
 }
 
 export const DEMO_USERS: DemoUser[] = [
-  { tag: "acme-owner", name: "Alice Acme", role: "Owner", company: "Acme Corp" },
-  { tag: "acme-admin", name: "Bob Acme", role: "Admin", company: "Acme Corp" },
-  { tag: "acme-member", name: "Charlie Acme", role: "Member", company: "Acme Corp" },
-  { tag: "acme-guest", name: "Grace Acme", role: "Guest", company: "Acme Corp" },
-  { tag: "globex-owner", name: "George Globex", role: "Owner", company: "Globex Corp" },
-  { tag: "globex-member", name: "Gina Globex", role: "Member", company: "Globex Corp" },
+  { tag: "acme-owner", name: "Alice Chen", role: "Owner", company: "Acme Corp" },
+  { tag: "acme-admin", name: "Bob Martinez", role: "Admin", company: "Acme Corp" },
+  { tag: "acme-member", name: "Carol Thompson", role: "Member", company: "Acme Corp" },
+  { tag: "acme-guest", name: "Dave Kim", role: "Guest", company: "Acme Corp" },
+  { tag: "globex-owner", name: "Frank Burns", role: "Owner", company: "Globex Corp" },
+  { tag: "globex-admin", name: "Grace Hopper", role: "Admin", company: "Globex Corp" },
 ];
 
 interface AuthContextType {

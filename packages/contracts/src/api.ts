@@ -140,7 +140,7 @@ export const ReactionListResponseSchema = z.array(ReactionSummarySchema);
 // --- Read State ---------------------------------------------------------------
 
 export const MarkReadRequestSchema = z.object({
-  last_read_message_id: UuidSchema,
+  last_read_message_id: UuidSchema.optional(),
 });
 export type MarkReadRequest = z.infer<typeof MarkReadRequestSchema>;
 

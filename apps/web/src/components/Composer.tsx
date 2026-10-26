@@ -1,42 +1,52 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Send, Smile, Paperclip, AtSign, AlertCircle } from "lucide-react";
+import { Send, Smile, AtSign, AlertCircle } from "lucide-react";
 import { Button, Popover, PopoverTrigger, PopoverContent } from "@cs/ui";
 import { apiRequest } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.js";
 import type { Conversation, User } from "../types.js";
 
 interface ComposerProps {
-  conversation: Conversation;
-  onSend: (body: string, mentionIds: string[]) => Promise<void>;
+  conversation?: Conversation;
+  conversationId?: string;
+  channelName?: string;
+  onSend?: (body: string, mentionIds: string[]) => Promise<void>;
+  onSendMessage?: (body: string, mentionIds?: string[]) => Promise<void>;
   disabled?: boolean;
   disabledReason?: string;
   placeholder?: string;
 }
 
-const COMMON_EMOJIS = ["👍", "❤️", "🔥", "🚀", "🎉", "👀", "🙌", "😂", "✅", "💯"];
+const COMMON_EMOJIS = ["👍", "❤️", "🚀", "🎉", "🔥", "👀", "🙌", "✅", "💯", "😄"];
 
 export function Composer({
   conversation,
+  conversationId,
+  channelName,
   onSend,
+  onSendMessage,
   disabled = false,
   disabledReason,
   placeholder,
 }: ComposerProps) {
   const { token, currentUser } = useAuth();
+  const convId = conversation?.id ?? conversationId;
+  const convName = channelName ?? conversation?.name ?? conversation?.other_user?.name;
+  const sendHandler = onSend ?? onSendMessage;
+
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionResults, setMentionResults] = useState<User[]>([]);
-  const [selectedMentions, setSelectedMentions] = useState<Map<string, string>>(new Map()); // id -> name
+  const [selectedMentions, setSelectedMentions] = useState<Map<string, string>>(new Map());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const draftTimerRef = useRef<number | null>(null);
 
   // Load existing draft
   useEffect(() => {
-    if (!token || !conversation.id) return;
+    if (!token || !convId) return;
     let isCurrent = true;
     void apiRequest<{ data: { body: string } | null }>(
-      `/v1/conversations/${conversation.id}/draft`,
+      `/v1/conversations/${convId}/draft`,
       token,
     )
       .then((res) => {
@@ -45,42 +55,41 @@ export function Composer({
         }
       })
       .catch(() => {});
-
     return () => {
       isCurrent = false;
     };
-  }, [conversation.id, token]);
+  }, [convId, token]);
 
   // Save draft debounce
   const saveDraft = useCallback(
     (body: string) => {
-      if (!token) return;
+      if (!token || !convId) return;
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
       draftTimerRef.current = window.setTimeout(() => {
         if (body.trim()) {
-          void apiRequest(`/v1/conversations/${conversation.id}/draft`, token, {
+          void apiRequest(`/v1/conversations/${convId}/draft`, token, {
             method: "PUT",
             body: JSON.stringify({ body }),
           }).catch(() => {});
         } else {
-          void apiRequest(`/v1/conversations/${conversation.id}/draft`, token, {
+          void apiRequest(`/v1/conversations/${convId}/draft`, token, {
             method: "DELETE",
           }).catch(() => {});
         }
       }, 500);
     },
-    [conversation.id, token],
+    [convId, token],
   );
 
   // Handle @mention search
   useEffect(() => {
-    if (mentionQuery === null || !token) {
+    if (mentionQuery === null || !token || !convId) {
       setMentionResults([]);
       return;
     }
     let isCurrent = true;
     void apiRequest<{ data: User[] }>(
-      `/v1/conversations/${conversation.id}/members/search?q=${encodeURIComponent(mentionQuery)}`,
+      `/v1/conversations/${convId}/members/search?q=${encodeURIComponent(mentionQuery)}`,
       token,
     )
       .then((res) => {
@@ -89,24 +98,21 @@ export function Composer({
       .catch(() => {
         if (isCurrent) setMentionResults([]);
       });
-
     return () => {
       isCurrent = false;
     };
-  }, [mentionQuery, conversation.id, token]);
+  }, [mentionQuery, convId, token]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setText(val);
     saveDraft(val);
 
-    // Auto-grow textarea
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
     }
 
-    // Check for @ mention trigger
     const cursorPos = e.target.selectionStart;
     const textBeforeCursor = val.slice(0, cursorPos);
     const lastAtMatch = textBeforeCursor.match(/@([a-zA-Z0-9_\- ]*)$/);
@@ -128,8 +134,6 @@ export function Composer({
     setText(newText);
     setSelectedMentions((prev) => new Map(prev).set(user.id, user.name));
     setMentionQuery(null);
-
-    // Re-focus
     setTimeout(() => {
       textareaRef.current?.focus();
     }, 50);
@@ -144,20 +148,18 @@ export function Composer({
 
   const handleSubmit = async () => {
     const trimmed = text.trim();
-    if (!trimmed || sending || disabled) return;
-
+    if (!trimmed || sending || disabled || !sendHandler) return;
     try {
       setSending(true);
       const mentionIds = Array.from(selectedMentions.keys());
-      await onSend(trimmed, mentionIds);
+      await sendHandler(trimmed, mentionIds);
       setText("");
       setSelectedMentions(new Map());
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
       }
-      // Clear draft
-      if (token) {
-        void apiRequest(`/v1/conversations/${conversation.id}/draft`, token, {
+      if (token && convId) {
+        void apiRequest(`/v1/conversations/${convId}/draft`, token, {
           method: "DELETE",
         }).catch(() => {});
       }
@@ -167,21 +169,20 @@ export function Composer({
   };
 
   const isAnnouncementBlocked =
-    conversation.is_announcement_only &&
-    !currentUser?.permissions.includes("communication.announcement.publish");
+    Boolean(conversation?.is_announcement_only) &&
+    !currentUser?.permissions?.includes("communication.announcement.publish");
 
   if (isAnnouncementBlocked) {
     return (
       <div className="p-3 bg-[var(--bg-subtle)] border-t border-[var(--border-subtle)] text-center text-xs text-[var(--fg-muted)] flex items-center justify-center gap-2">
         <AlertCircle className="h-4 w-4 text-[var(--warning)] shrink-0" />
-        Only channel admins and publishers can post in this announcement channel.
+        {disabledReason ?? "Only channel admins and publishers can post in this announcement channel."}
       </div>
     );
   }
 
   return (
     <div className="relative p-3 bg-[var(--bg-surface)] border-t border-[var(--border-subtle)]">
-      {/* Mention suggestions popup */}
       {mentionQuery !== null && mentionResults.length > 0 && (
         <div className="absolute bottom-full left-4 mb-2 w-64 rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1 shadow-lg z-50 max-h-48 overflow-y-auto">
           <div className="px-2 py-1 text-[10px] uppercase font-semibold text-[var(--fg-muted)]">
@@ -211,7 +212,7 @@ export function Composer({
           disabled={disabled || sending}
           placeholder={
             placeholder ??
-            `Message ${conversation.name ? `#${conversation.name}` : conversation.other_user?.name ?? ""}`
+            `Message ${convName ? `#${convName}` : ""}`
           }
           rows={1}
           className="w-full resize-none bg-transparent px-3.5 py-2.5 text-sm text-[var(--fg-primary)] placeholder-[var(--fg-subtle)] outline-none min-h-[44px] max-h-[180px]"

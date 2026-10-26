@@ -10,7 +10,7 @@ export default async function readStateRoutes(fastify: FastifyInstance) {
     const identity = request.identity;
     policy.require(identity, PERMISSIONS.ACCESS);
 
-    const body = MarkReadRequestSchema.safeParse(request.body);
+    const body = MarkReadRequestSchema.safeParse(request.body ?? {});
     if (!body.success) {
       return reply
         .status(400)

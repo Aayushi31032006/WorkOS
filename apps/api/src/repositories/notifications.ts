@@ -1,5 +1,5 @@
-import { eq, and, desc, sql } from "drizzle-orm";
-import { notifications } from "../db/schema/index.js";
+﻿import { eq, and, desc, sql } from "drizzle-orm";
+import { notifications, users, conversations, messages } from "../db/schema/index.js";
 import { withTenantTx } from "./base.js";
 import type { RequestIdentity } from "../auth/plugin.js";
 import type { Db } from "./base.js";
@@ -22,12 +22,31 @@ export const notificationsRepo = {
       if (opts?.isRead !== undefined) {
         conditions.push(eq(notifications.is_read, opts.isRead));
       }
-      return tx
-        .select()
+      const rows = await tx
+        .select({
+          id: notifications.id,
+          user_id: notifications.user_id,
+          company_id: notifications.company_id,
+          kind: notifications.kind,
+          conversation_id: notifications.conversation_id,
+          message_id: notifications.message_id,
+          actor_id: notifications.actor_id,
+          is_read: notifications.is_read,
+          created_at: notifications.created_at,
+          actor_name: users.name,
+          actor_avatar_url: users.avatar_url,
+          conversation_name: conversations.name,
+          message_snippet: messages.body,
+        })
         .from(notifications)
+        .leftJoin(users, eq(notifications.actor_id, users.id))
+        .leftJoin(conversations, eq(notifications.conversation_id, conversations.id))
+        .leftJoin(messages, eq(notifications.message_id, messages.id))
         .where(and(...conditions))
         .orderBy(desc(notifications.created_at))
         .limit(opts?.limit ?? 50);
+
+      return rows;
     });
   },
 

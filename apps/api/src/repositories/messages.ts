@@ -6,6 +6,7 @@ import {
   messageMentions,
   notifications,
   objectReferences,
+  users,
 } from "../db/schema/index.js";
 import { withTenantTx } from "./base.js";
 import type { RequestIdentity } from "../auth/plugin.js";
@@ -159,6 +160,11 @@ export const messagesRepo = {
         message: {
           ...msg,
           object_references: createdRefs,
+          author: {
+            id: identity.userId,
+            name: identity.name,
+            avatar_url: identity.avatarUrl ?? null,
+          },
         },
         created: true,
       };
@@ -191,13 +197,43 @@ export const messagesRepo = {
       const order = opts.direction === "before" ? desc(messages.seq) : asc(messages.seq);
 
       const rows = await tx
-        .select()
+        .select({
+          id: messages.id,
+          conversation_id: messages.conversation_id,
+          company_id: messages.company_id,
+          author_id: messages.author_id,
+          client_msg_id: messages.client_msg_id,
+          seq: messages.seq,
+          body: messages.body,
+          parent_id: messages.parent_id,
+          attachment_ids: messages.attachment_ids,
+          mention_ids: messages.mention_ids,
+          object_reference_ids: messages.object_reference_ids,
+          edited_at: messages.edited_at,
+          deleted_at: messages.deleted_at,
+          deleted_by: messages.deleted_by,
+          created_at: messages.created_at,
+          author_name: users.name,
+          author_avatar_url: users.avatar_url,
+        })
         .from(messages)
+        .leftJoin(users, eq(messages.author_id, users.id))
         .where(and(...conditions))
         .orderBy(order)
         .limit(opts.limit + 1);
 
-      return opts.direction === "before" ? rows.reverse() : rows;
+      const mapped = rows.map((r) => ({
+        ...r,
+        author: r.author_id
+          ? {
+              id: r.author_id,
+              name: r.author_name ?? "Team Member",
+              avatar_url: r.author_avatar_url ?? null,
+            }
+          : undefined,
+      }));
+
+      return opts.direction === "before" ? mapped.reverse() : mapped;
     });
   },
 
@@ -221,12 +257,42 @@ export const messagesRepo = {
         conditions.push(gt(messages.seq, opts.cursor));
       }
 
-      return tx
-        .select()
+      const rows = await tx
+        .select({
+          id: messages.id,
+          conversation_id: messages.conversation_id,
+          company_id: messages.company_id,
+          author_id: messages.author_id,
+          client_msg_id: messages.client_msg_id,
+          seq: messages.seq,
+          body: messages.body,
+          parent_id: messages.parent_id,
+          attachment_ids: messages.attachment_ids,
+          mention_ids: messages.mention_ids,
+          object_reference_ids: messages.object_reference_ids,
+          edited_at: messages.edited_at,
+          deleted_at: messages.deleted_at,
+          deleted_by: messages.deleted_by,
+          created_at: messages.created_at,
+          author_name: users.name,
+          author_avatar_url: users.avatar_url,
+        })
         .from(messages)
+        .leftJoin(users, eq(messages.author_id, users.id))
         .where(and(...conditions))
         .orderBy(asc(messages.seq))
         .limit(opts.limit + 1);
+
+      return rows.map((r) => ({
+        ...r,
+        author: r.author_id
+          ? {
+              id: r.author_id,
+              name: r.author_name ?? "Team Member",
+              avatar_url: r.author_avatar_url ?? null,
+            }
+          : undefined,
+      }));
     });
   },
 
@@ -262,11 +328,41 @@ export const messagesRepo = {
   async getById(identity: RequestIdentity, id: string) {
     return withTenantTx(identity, async (tx: Db) => {
       const rows = await tx
-        .select()
+        .select({
+          id: messages.id,
+          conversation_id: messages.conversation_id,
+          company_id: messages.company_id,
+          author_id: messages.author_id,
+          client_msg_id: messages.client_msg_id,
+          seq: messages.seq,
+          body: messages.body,
+          parent_id: messages.parent_id,
+          attachment_ids: messages.attachment_ids,
+          mention_ids: messages.mention_ids,
+          object_reference_ids: messages.object_reference_ids,
+          edited_at: messages.edited_at,
+          deleted_at: messages.deleted_at,
+          deleted_by: messages.deleted_by,
+          created_at: messages.created_at,
+          author_name: users.name,
+          author_avatar_url: users.avatar_url,
+        })
         .from(messages)
+        .leftJoin(users, eq(messages.author_id, users.id))
         .where(and(eq(messages.id, id), eq(messages.company_id, identity.companyId)))
         .limit(1);
-      return rows[0] ?? null;
+      const r = rows[0];
+      if (!r) return null;
+      return {
+        ...r,
+        author: r.author_id
+          ? {
+              id: r.author_id,
+              name: r.author_name ?? "Team Member",
+              avatar_url: r.author_avatar_url ?? null,
+            }
+          : undefined,
+      };
     });
   },
 

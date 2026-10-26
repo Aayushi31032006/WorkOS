@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from "react";
+﻿import React, { useEffect, useState, useRef, useCallback } from "react";
 import {
   Hash,
   Lock,
@@ -9,6 +9,7 @@ import {
   Users,
   Pin,
   RefreshCw,
+  Megaphone,
 } from "lucide-react";
 import { Avatar, Badge, Button, Popover, PopoverTrigger, PopoverContent, Skeleton } from "@cs/ui";
 import { apiRequest } from "../api/client.js";
@@ -20,17 +21,35 @@ import type { Conversation, Message, ReactionSummary } from "../types.js";
 interface ConversationViewProps {
   conversation: Conversation;
   onOpenThread?: (message: Message) => void;
+  highlightMessageId?: string | null;
 }
 
 const EMOJI_PRESETS = ["👍", "❤️", "🔥", "🎉", "👀", "🚀"];
 
-export function ConversationView({ conversation, onOpenThread }: ConversationViewProps) {
+export function ConversationView({
+  conversation,
+  onOpenThread,
+  highlightMessageId,
+}: ConversationViewProps) {
   const { token, currentUser } = useAuth();
-  const { lastEvent } = useWebSocket();
+  const { lastEvent, subscribe, unsubscribe } = useWebSocket();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const highlightedRef = useRef<HTMLDivElement | null>(null);
+
+  // Active WebSocket Subscription to open conversation
+  useEffect(() => {
+    if (!conversation.id) return;
+    console.info(`[ConversationView] Subscribing to: #${conversation.name ?? conversation.id}`);
+    subscribe(conversation.id);
+
+    return () => {
+      console.info(`[ConversationView] Unsubscribing from: #${conversation.name ?? conversation.id}`);
+      unsubscribe(conversation.id);
+    };
+  }, [conversation.id, subscribe, unsubscribe]);
 
   // Fetch messages
   const fetchMessages = useCallback(async () => {
@@ -56,12 +75,23 @@ export function ConversationView({ conversation, onOpenThread }: ConversationVie
     void fetchMessages();
   }, [fetchMessages]);
 
+  // Handle scroll to highlighted message from notification
+  useEffect(() => {
+    if (highlightMessageId && highlightedRef.current) {
+      highlightedRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlightMessageId, messages]);
+
   // Handle incoming live websocket events
   useEffect(() => {
     if (!lastEvent) return;
+
     if (lastEvent.type === "message.created") {
       const msg = (lastEvent.payload as { message?: Message })?.message;
-      if (msg && msg.conversation_id === conversation.id && !msg.parent_id) {
+      if (!msg) return;
+
+      // Handle root message in current conversation
+      if (msg.conversation_id === conversation.id && !msg.parent_id) {
         setMessages((prev) => {
           // If we have an optimistic message with same client_msg_id, replace it
           const idx = prev.findIndex((m) => m.client_msg_id === msg.client_msg_id);
@@ -74,13 +104,75 @@ export function ConversationView({ conversation, onOpenThread }: ConversationVie
           return [...prev, msg];
         });
         scrollToBottom("smooth");
-        // Auto mark read if conversation is open
         if (token) {
           void apiRequest(`/v1/conversations/${conversation.id}/read`, token, { method: "POST" });
         }
       }
+
+      // Handle reply in current conversation
+      if (msg.conversation_id === conversation.id && msg.parent_id) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === msg.parent_id ? { ...m, reply_count: (m.reply_count ?? 0) + 1 } : m,
+          ),
+        );
+      }
     }
-  }, [lastEvent, conversation.id, token]);
+
+    if (lastEvent.type === "message.updated") {
+      const updatedMsg = (lastEvent.payload as { message?: Message })?.message;
+      if (updatedMsg && updatedMsg.conversation_id === conversation.id) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === updatedMsg.id ? { ...m, ...updatedMsg } : m)),
+        );
+      }
+    }
+
+    if (lastEvent.type === "message.deleted") {
+      const deletedId = (lastEvent.payload as { message_id?: string })?.message_id;
+      if (deletedId) {
+        setMessages((prev) => prev.filter((m) => m.id !== deletedId));
+      }
+    }
+
+    if (lastEvent.type === "reaction.added" || lastEvent.type === "reaction.removed") {
+      const payload = lastEvent.payload as { message_id?: string; emoji?: string; user_id?: string };
+      if (payload.message_id && payload.emoji) {
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== payload.message_id) return m;
+            const currentReactions = m.reactions ?? [];
+            const isAdd = lastEvent.type === "reaction.added";
+            const existing = currentReactions.find((r) => r.emoji === payload.emoji);
+
+            let next: ReactionSummary[];
+            if (existing) {
+              const newCount = isAdd ? existing.count + 1 : Math.max(0, existing.count - 1);
+              const reactedByMe = payload.user_id === currentUser?.id ? isAdd : existing.reacted_by_me;
+              next = currentReactions.map((r) =>
+                r.emoji === payload.emoji
+                  ? { ...r, count: newCount, reacted_by_me: reactedByMe }
+                  : r,
+              ).filter((r) => r.count > 0);
+            } else if (isAdd) {
+              next = [
+                ...currentReactions,
+                {
+                  emoji: payload.emoji,
+                  count: 1,
+                  user_ids: payload.user_id ? [payload.user_id] : [],
+                  reacted_by_me: payload.user_id === currentUser?.id,
+                },
+              ];
+            } else {
+              next = currentReactions;
+            }
+            return { ...m, reactions: next };
+          }),
+        );
+      }
+    }
+  }, [lastEvent, conversation.id, token, currentUser?.id]);
 
   const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
     if (scrollContainerRef.current) {
@@ -161,7 +253,7 @@ export function ConversationView({ conversation, onOpenThread }: ConversationVie
           body: JSON.stringify({ emoji }),
         },
       );
-      // Fetch updated reactions or optimistically toggle
+      // Optimistic reaction toggle
       setMessages((prev) =>
         prev.map((m) => {
           if (m.id !== messageId) return m;
@@ -187,64 +279,74 @@ export function ConversationView({ conversation, onOpenThread }: ConversationVie
           return { ...m, reactions: nextReactions };
         }),
       );
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error("Failed to add reaction:", err);
     }
   };
 
-  const formatMessageDate = (iso: string) => {
-    const d = new Date(iso);
+  const formatMessageDate = (dateStr: string) => {
+    const d = new Date(dateStr);
     const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
     if (d.toDateString() === today.toDateString()) return "Today";
-    const yesterday = new Date();
-    yesterday.setDate(today.getDate() - 1);
     if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: d.getFullYear() !== today.getFullYear() ? "numeric" : undefined,
+    });
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[var(--bg-canvas)] min-w-0">
-      {/* Conversation Top Header */}
-      <div className="h-13 px-4 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2.5 min-w-0">
-          {conversation.type === "channel" ? (
-            conversation.kind === "private" ? (
-              <Lock className="h-4 w-4 text-[var(--fg-muted)] shrink-0" />
+    <div className="flex-1 flex flex-col h-full bg-[var(--bg-canvas)] overflow-hidden">
+      {/* Header */}
+      <div className="h-13 px-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-canvas)] shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="text-[var(--fg-muted)]">
+            {conversation.type === "dm" ? (
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block ring-2 ring-[var(--bg-canvas)]" />
+            ) : conversation.kind === "announcement" || conversation.is_announcement_only ? (
+              <Megaphone className="h-4 w-4 text-amber-400" />
+            ) : conversation.kind === "private" ? (
+              <Lock className="h-4 w-4" />
             ) : (
-              <Hash className="h-4 w-4 text-[var(--fg-muted)] shrink-0" />
-            )
-          ) : (
-            <Avatar name={conversation.name ?? "Member"} size="sm" />
-          )}
-
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-[var(--fg-primary)] truncate">
-                {conversation.name ?? conversation.other_user?.name ?? "Direct Message"}
-              </h2>
-              {conversation.is_announcement_only && (
-                <Badge variant="accent" className="text-[10px] px-1.5 py-0">
-                  Announcements
+              <Hash className="h-4 w-4" />
+            )}
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-[var(--fg-primary)] truncate flex items-center gap-2">
+              {conversation.type === "dm"
+                ? conversation.dm_user?.name ?? "Direct Message"
+                : conversation.name}
+              {conversation.kind === "announcement" && (
+                <Badge variant="outline" className="text-[10px] text-amber-400 border-amber-400/30">
+                  announcements
                 </Badge>
               )}
-            </div>
+            </h2>
             {conversation.topic && (
-              <p className="text-xs text-[var(--fg-muted)] truncate hidden md:block">
+              <p className="text-[11px] text-[var(--fg-muted)] truncate max-w-md">
                 {conversation.topic}
               </p>
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="flex items-center gap-1 text-xs text-[var(--fg-muted)] px-2 py-1 rounded-[4px] bg-[var(--bg-subtle)]">
+        {/* Member count badge */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-xs text-[var(--fg-muted)] px-2 py-1 rounded-[6px] hover:bg-[var(--bg-subtle)] transition-colors cursor-pointer">
             <Users className="h-3.5 w-3.5" />
-            <span>{conversation.member_count}</span>
+            <span className="font-medium text-[var(--fg-primary)]">
+              {conversation.member_count ?? 1}
+            </span>
+            <span>members</span>
           </div>
         </div>
       </div>
 
-      {/* Messages Stream */}
+      {/* Message List */}
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
@@ -253,48 +355,60 @@ export function ConversationView({ conversation, onOpenThread }: ConversationVie
         {loading ? (
           <div className="space-y-4 pt-4">
             <div className="flex gap-3">
-              <Skeleton className="h-8 w-8 rounded-full" />
+              <Skeleton className="h-8 w-8 rounded-full shrink-0" />
               <div className="space-y-2 flex-1">
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="h-4 w-4/5" />
+                <Skeleton className="h-3 w-32" />
+                <Skeleton className="h-4 w-3/4" />
               </div>
             </div>
             <div className="flex gap-3">
-              <Skeleton className="h-8 w-8 rounded-full" />
+              <Skeleton className="h-8 w-8 rounded-full shrink-0" />
               <div className="space-y-2 flex-1">
-                <Skeleton className="h-4 w-28" />
-                <Skeleton className="h-4 w-3/5" />
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-4 w-1/2" />
               </div>
             </div>
           </div>
         ) : messages.length === 0 ? (
-          <div className="py-20 text-center space-y-2">
-            <div className="h-10 w-10 mx-auto rounded-full bg-[var(--bg-subtle)] flex items-center justify-center text-[var(--accent)]">
-              <MessageSquare className="h-5 w-5" />
+          <div className="h-full flex flex-col items-center justify-center text-center p-8">
+            <div className="w-12 h-12 rounded-2xl bg-[var(--bg-subtle)] flex items-center justify-center mb-3 text-[var(--fg-muted)]">
+              {conversation.type === "dm" ? (
+                <MessageSquare className="h-6 w-6" />
+              ) : (
+                <Hash className="h-6 w-6" />
+              )}
             </div>
             <h3 className="text-sm font-semibold text-[var(--fg-primary)]">
-              Welcome to #{conversation.name ?? "this chat"}!
+              Welcome to #{conversation.name ?? "this conversation"}
             </h3>
-            <p className="text-xs text-[var(--fg-muted)] max-w-sm mx-auto">
-              This is the beginning of the conversation. Send a message to start chatting with your team.
+            <p className="text-xs text-[var(--fg-muted)] mt-1 max-w-sm">
+              This is the start of the conversation. Send a message to start collaborating.
             </p>
           </div>
         ) : (
-          messages.map((msg, index) => {
-            const prevMsg = messages[index - 1];
-            const isDifferentDay =
+          messages.map((msg, idx) => {
+            const prevMsg = messages[idx - 1];
+            const isGrouped =
+              prevMsg &&
+              prevMsg.author_id === msg.author_id &&
+              new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 300000;
+
+            const isNewDay =
               !prevMsg ||
               new Date(msg.created_at).toDateString() !==
                 new Date(prevMsg.created_at).toDateString();
-            const isGrouped =
-              prevMsg &&
-              !isDifferentDay &&
-              prevMsg.author_id === msg.author_id &&
-              new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 300000; // 5 mins
+
+            const isSystemMessage =
+              msg.body.startsWith("Welcome to #") ||
+              Boolean(msg.is_system) ||
+              msg.body.includes("This channel is ready for collaboration.");
+
+            const isHighlighted = highlightMessageId === msg.id;
 
             return (
               <React.Fragment key={msg.id}>
-                {isDifferentDay && (
+                {/* Day Separator */}
+                {isNewDay && (
                   <div className="relative flex items-center justify-center my-4">
                     <div className="absolute inset-0 flex items-center">
                       <div className="w-full border-t border-[var(--border-subtle)]" />
@@ -305,34 +419,67 @@ export function ConversationView({ conversation, onOpenThread }: ConversationVie
                   </div>
                 )}
 
-                <div className={`relative flex items-start gap-3 group px-2 py-1 -mx-2 rounded-[6px] hover:bg-[var(--bg-subtle)]/50 transition-colors ${
-                  isGrouped ? "mt-0.5" : "mt-2"
-                }`}>
+                <div
+                  ref={isHighlighted ? (el) => { highlightedRef.current = el; } : undefined}
+                  className={`relative flex items-start gap-3 group px-2.5 py-1.5 -mx-2 rounded-[8px] transition-all ${
+                    isHighlighted
+                      ? "ring-2 ring-[var(--accent)] bg-[var(--accent-subtle)]/35 shadow-sm"
+                      : "hover:bg-[var(--bg-subtle)]/50"
+                  } ${isGrouped ? "mt-0.5" : "mt-2"}`}
+                >
                   {/* Avatar or time gutter */}
                   {!isGrouped ? (
-                    <Avatar
-                      name={msg.author?.name}
-                      src={msg.author?.avatar_url}
-                      size="sm"
-                      className="mt-0.5"
-                    />
+                    isSystemMessage ? (
+                      <div className="w-7 h-7 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                        SYS
+                      </div>
+                    ) : (
+                      <Avatar
+                        name={msg.author?.name ?? msg.author_name}
+                        src={msg.author?.avatar_url ?? msg.author_avatar_url}
+                        size="sm"
+                        className="mt-0.5"
+                      />
+                    )
                   ) : (
-                    <div className="w-6 text-[9px] text-[var(--fg-subtle)] opacity-0 group-hover:opacity-100 transition-opacity text-right pt-1 shrink-0 select-none">
-                      {new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    <div className="w-7 text-[9px] text-[var(--fg-subtle)] opacity-0 group-hover:opacity-100 transition-opacity text-right pt-1 shrink-0 select-none">
+                      {new Date(msg.created_at).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
                     </div>
                   )}
 
                   <div className="flex-1 min-w-0">
                     {!isGrouped && (
                       <div className="flex items-baseline gap-2">
-                        <span className="text-xs font-semibold text-[var(--fg-primary)] hover:underline cursor-pointer">
-                          {msg.author?.name ?? "Team Member"}
-                        </span>
+                        {isSystemMessage ? (
+                          <>
+                            <span className="text-xs font-semibold text-indigo-400">
+                              System
+                            </span>
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] px-1 py-0 bg-indigo-500/10 text-indigo-400 border-indigo-500/30"
+                            >
+                              System
+                            </Badge>
+                          </>
+                        ) : (
+                          <span className="text-xs font-semibold text-[var(--fg-primary)] hover:underline cursor-pointer">
+                            {msg.author?.name ?? msg.author_name ?? "Team Member"}
+                          </span>
+                        )}
                         <span className="text-[10px] text-[var(--fg-subtle)]">
-                          {new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          {new Date(msg.created_at).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
                         </span>
                         {msg.status === "sending" && (
-                          <span className="text-[10px] text-[var(--fg-subtle)] italic">sending...</span>
+                          <span className="text-[10px] text-[var(--fg-subtle)] italic">
+                            sending...
+                          </span>
                         )}
                         {msg.status === "failed" && (
                           <span className="text-[10px] text-[var(--danger)] flex items-center gap-1 font-medium">
@@ -356,46 +503,48 @@ export function ConversationView({ conversation, onOpenThread }: ConversationVie
                             onClick={() => handleAddReaction(msg.id, r.emoji)}
                             className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] text-xs border transition-colors cursor-pointer ${
                               r.reacted_by_me
-                                ? "bg-[var(--accent-subtle)] border-[var(--accent)] text-[var(--accent)]"
+                                ? "bg-[var(--accent-subtle)] border-[var(--accent)] text-[var(--accent)] font-medium"
                                 : "bg-[var(--bg-surface)] border-[var(--border-subtle)] text-[var(--fg-secondary)] hover:bg-[var(--bg-muted)]"
                             }`}
                           >
                             <span>{r.emoji}</span>
-                            <span className="text-[10px] font-medium">{r.count}</span>
+                            <span className="text-[10px]">{r.count}</span>
                           </button>
                         ))}
                       </div>
                     )}
 
-                    {/* Thread Reply Banner */}
-                    {msg.reply_count > 0 && (
+                    {/* Thread Reply Count */}
+                    {Boolean(msg.reply_count && msg.reply_count > 0) && (
                       <button
                         onClick={() => onOpenThread?.(msg)}
                         className="inline-flex items-center gap-1.5 mt-2 text-xs font-medium text-[var(--accent)] hover:underline cursor-pointer"
                       >
                         <MessageSquare className="h-3 w-3" />
-                        <span>{msg.reply_count} {msg.reply_count === 1 ? "reply" : "replies"}</span>
+                        <span>
+                          {msg.reply_count} {msg.reply_count === 1 ? "reply" : "replies"}
+                        </span>
                       </button>
                     )}
                   </div>
 
-                  {/* Hover Actions Toolbar */}
-                  <div className="absolute right-2 -top-3 hidden group-hover:flex items-center gap-0.5 bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-sm rounded-[6px] px-1 py-0.5 z-10 animate-in fade-in-0 duration-100">
+                  {/* Hover Action Toolbar */}
+                  <div className="absolute right-2 -top-3.5 hidden group-hover:flex items-center bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-[6px] shadow-sm px-1 py-0.5 gap-0.5 z-10">
                     <Popover>
                       <PopoverTrigger asChild>
                         <button
-                          className="p-1 rounded-[4px] hover:bg-[var(--bg-subtle)] text-[var(--fg-muted)] hover:text-[var(--fg-primary)]"
+                          className="p-1 rounded-[4px] hover:bg-[var(--bg-subtle)] text-[var(--fg-muted)] hover:text-[var(--fg-primary)] cursor-pointer"
                           title="Add reaction"
                         >
                           <Smile className="h-3.5 w-3.5" />
                         </button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-auto p-1.5 flex gap-1">
+                      <PopoverContent className="p-1.5 flex gap-1 bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-md rounded-[8px]">
                         {EMOJI_PRESETS.map((emoji) => (
                           <button
                             key={emoji}
                             onClick={() => handleAddReaction(msg.id, emoji)}
-                            className="p-1 text-sm hover:scale-120 transition-transform cursor-pointer"
+                            className="p-1 rounded hover:bg-[var(--bg-subtle)] text-sm cursor-pointer"
                           >
                             {emoji}
                           </button>
@@ -405,7 +554,7 @@ export function ConversationView({ conversation, onOpenThread }: ConversationVie
 
                     <button
                       onClick={() => onOpenThread?.(msg)}
-                      className="p-1 rounded-[4px] hover:bg-[var(--bg-subtle)] text-[var(--fg-muted)] hover:text-[var(--fg-primary)]"
+                      className="p-1 rounded-[4px] hover:bg-[var(--bg-subtle)] text-[var(--fg-muted)] hover:text-[var(--fg-primary)] cursor-pointer"
                       title="Reply in thread"
                     >
                       <MessageSquare className="h-3.5 w-3.5" />
@@ -420,18 +569,29 @@ export function ConversationView({ conversation, onOpenThread }: ConversationVie
 
       {/* Jump to bottom button */}
       {showScrollBottom && (
-        <div className="relative">
+        <div className="absolute bottom-24 right-8 z-20">
           <button
             onClick={() => scrollToBottom("smooth")}
-            className="absolute bottom-4 right-6 p-2 rounded-full bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-md text-[var(--fg-primary)] hover:bg-[var(--bg-subtle)] transition-transform hover:scale-105 cursor-pointer z-20"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-md text-xs font-medium text-[var(--fg-primary)] hover:bg-[var(--bg-subtle)] cursor-pointer transition-transform active:scale-95"
           >
-            <ArrowDown className="h-4 w-4" />
+            <ArrowDown className="h-3 w-3" />
+            <span>Jump to latest</span>
           </button>
         </div>
       )}
 
-      {/* Message Composer */}
-      <Composer conversation={conversation} onSend={handleSendMessage} />
+      {/* Composer */}
+      <Composer
+        conversationId={conversation.id}
+        channelName={conversation.name ?? undefined}
+        onSendMessage={handleSendMessage}
+        disabled={conversation.is_archived || (conversation.is_announcement_only && currentUser?.permissions && !currentUser.permissions.includes("communication.announcement.publish"))}
+        disabledReason={
+          conversation.is_archived
+            ? "This channel is archived. Messages cannot be sent."
+            : "Only channel admins can post in announcement channels."
+        }
+      />
     </div>
   );
 }

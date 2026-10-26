@@ -129,7 +129,7 @@ export function ThreadPanel({ conversation, rootMessage, onClose }: ThreadPanelP
             <Avatar name={rootMessage.author?.name} src={rootMessage.author?.avatar_url} size="sm" />
             <div>
               <span className="text-xs font-semibold text-[var(--fg-primary)]">
-                {rootMessage.author?.name ?? "Member"}
+                {rootMessage.author?.name ?? rootMessage.author_name ?? "Team Member"}
               </span>
               <span className="text-[10px] text-[var(--fg-subtle)] ml-2">
                 {new Date(rootMessage.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -158,7 +158,7 @@ export function ThreadPanel({ conversation, rootMessage, onClose }: ThreadPanelP
               <div className="flex-1 min-w-0">
                 <div className="flex items-baseline gap-1.5">
                   <span className="text-xs font-medium text-[var(--fg-primary)]">
-                    {reply.author?.name ?? "Member"}
+                    {reply.author?.name ?? reply.author_name ?? "Team Member"}
                   </span>
                   <span className="text-[10px] text-[var(--fg-subtle)]">
                     {new Date(reply.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}

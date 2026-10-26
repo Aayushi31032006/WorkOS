@@ -44,7 +44,7 @@ export const conversationsRepo = {
           topic: conversations.topic,
           is_archived: conversations.is_archived,
           is_announcement_only: conversations.is_announcement_only,
-          member_count: conversations.member_count,
+          member_count: sql<number>`(SELECT count(*)::int FROM memberships WHERE memberships.conversation_id = ${conversations.id})`,
           last_message_at: conversations.last_message_at,
           created_at: conversations.created_at,
         })
@@ -65,11 +65,65 @@ export const conversationsRepo = {
   async getById(identity: RequestIdentity, id: string) {
     return withTenantTx(identity, async (tx: Db) => {
       const rows = await tx
-        .select()
+        .select({
+          id: conversations.id,
+          company_id: conversations.company_id,
+          type: conversations.type,
+          kind: conversations.kind,
+          name: conversations.name,
+          topic: conversations.topic,
+          is_archived: conversations.is_archived,
+          is_announcement_only: conversations.is_announcement_only,
+          department_id: conversations.department_id,
+          project_id: conversations.project_id,
+          member_count: sql<number>`(SELECT count(*)::int FROM memberships WHERE memberships.conversation_id = ${conversations.id})`,
+          last_message_at: conversations.last_message_at,
+          created_by: conversations.created_by,
+          created_at: conversations.created_at,
+          updated_at: conversations.updated_at,
+        })
         .from(conversations)
         .where(and(eq(conversations.id, id), eq(conversations.company_id, identity.companyId)))
         .limit(1);
       return rows[0] ?? null;
+    });
+  },
+
+  async ensureMembership(identity: RequestIdentity, conversationId: string): Promise<boolean> {
+    return withTenantTx(identity, async (tx: Db) => {
+      const existing = await tx
+        .select({ id: memberships.id })
+        .from(memberships)
+        .where(
+          and(
+            eq(memberships.conversation_id, conversationId),
+            eq(memberships.user_id, identity.userId),
+            eq(memberships.company_id, identity.companyId),
+          ),
+        )
+        .limit(1);
+      if (existing.length > 0) return true;
+
+      const [conv] = await tx
+        .select({ kind: conversations.kind, type: conversations.type })
+        .from(conversations)
+        .where(and(eq(conversations.id, conversationId), eq(conversations.company_id, identity.companyId)))
+        .limit(1);
+
+      if (!conv) return false;
+      if (conv.type === "channel" && (conv.kind === "public" || conv.kind === "company" || !conv.kind)) {
+        await tx
+          .insert(memberships)
+          .values({
+            conversation_id: conversationId,
+            user_id: identity.userId,
+            company_id: identity.companyId,
+            role: "member",
+          })
+          .onConflictDoNothing();
+        return true;
+      }
+      return false;
     });
   },
 

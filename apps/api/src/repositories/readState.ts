@@ -1,41 +1,64 @@
-import { eq, and, sql, gt, count } from "drizzle-orm";
+﻿import { eq, and, sql, gt, count } from "drizzle-orm";
 import { memberships, messages } from "../db/schema/index.js";
 import { withTenantTx } from "./base.js";
 import type { RequestIdentity } from "../auth/plugin.js";
 import type { Db } from "./base.js";
 
 export const readStateRepo = {
-  async markRead(identity: RequestIdentity, conversationId: string, lastReadMessageId: string) {
+  async markRead(identity: RequestIdentity, conversationId: string, lastReadMessageId?: string) {
     return withTenantTx(identity, async (tx: Db) => {
-      // Find the seq of lastReadMessageId
-      const [targetMsg] = await tx
-        .select({ seq: messages.seq })
-        .from(messages)
-        .where(
-          and(
-            eq(messages.id, lastReadMessageId),
-            eq(messages.conversation_id, conversationId),
-            eq(messages.company_id, identity.companyId),
-          ),
-        )
-        .limit(1);
+      let targetId = lastReadMessageId;
+      let targetSeq = 0;
 
-      const [updated] = await tx
-        .update(memberships)
-        .set({
-          last_read_message_id: lastReadMessageId,
-          updated_at: new Date(),
-        })
-        .where(
-          and(
-            eq(memberships.conversation_id, conversationId),
-            eq(memberships.user_id, identity.userId),
-            eq(memberships.company_id, identity.companyId),
-          ),
-        )
-        .returning();
+      if (targetId) {
+        const [targetMsg] = await tx
+          .select({ seq: messages.seq })
+          .from(messages)
+          .where(
+            and(
+              eq(messages.id, targetId),
+              eq(messages.conversation_id, conversationId),
+              eq(messages.company_id, identity.companyId),
+            ),
+          )
+          .limit(1);
+        targetSeq = targetMsg?.seq ?? 0;
+      } else {
+        const [latestMsg] = await tx
+          .select({ id: messages.id, seq: messages.seq })
+          .from(messages)
+          .where(
+            and(
+              eq(messages.conversation_id, conversationId),
+              eq(messages.company_id, identity.companyId),
+              sql`deleted_at IS NULL`,
+            ),
+          )
+          .orderBy(sql`seq DESC`)
+          .limit(1);
+        if (latestMsg) {
+          targetId = latestMsg.id;
+          targetSeq = latestMsg.seq;
+        }
+      }
 
-      return { membership: updated ?? null, lastSeq: targetMsg?.seq ?? 0 };
+      if (targetId) {
+        await tx
+          .update(memberships)
+          .set({
+            last_read_message_id: targetId,
+            updated_at: new Date(),
+          })
+          .where(
+            and(
+              eq(memberships.conversation_id, conversationId),
+              eq(memberships.user_id, identity.userId),
+              eq(memberships.company_id, identity.companyId),
+            ),
+          );
+      }
+
+      return { conversationId, lastReadMessageId: targetId ?? null, lastSeq: targetSeq };
     });
   },
 
@@ -100,8 +123,8 @@ export const readStateRepo = {
 
       return {
         conversation_id: conversationId,
-        unread_count: res.count,
-        mention_count: mRes.count,
+        unread_count: res?.count ?? 0,
+        mention_count: mRes?.count ?? 0,
       };
     });
   },
