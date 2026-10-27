@@ -1,4 +1,4 @@
-﻿import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from "react";
 import { useAuth } from "./AuthContext.js";
 
 export type WsStatus = "connected" | "reconnecting" | "offline";
@@ -60,7 +60,11 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
     }
 
     setStatus("reconnecting");
-    const ws = new WebSocket(`ws://localhost:3001/ws?token=${token}`);
+    const wsBase =
+      (import.meta.env.VITE_COMMUNICATION_WS_URL as string | undefined) ||
+      (import.meta.env.VITE_WS_URL as string | undefined) ||
+      "ws://localhost:3001";
+    const ws = new WebSocket(`${wsBase}/ws?token=${token}`);
     wsRef.current = ws;
 
     ws.onopen = () => {

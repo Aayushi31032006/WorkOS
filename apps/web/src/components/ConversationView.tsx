@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState, useRef, useCallback } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import {
   Hash,
   Lock,
@@ -10,26 +10,40 @@ import {
   Pin,
   RefreshCw,
   Megaphone,
+  Paperclip,
+  FileText,
+  Image,
+  FolderKanban,
+  CheckSquare,
+  Settings,
+  Download,
+  ExternalLink,
 } from "lucide-react";
 import { Avatar, Badge, Button, Popover, PopoverTrigger, PopoverContent, Skeleton } from "@cs/ui";
 import { apiRequest } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.js";
 import { useWebSocket } from "../context/WebSocketContext.js";
-import { Composer } from "./Composer.js";
-import type { Conversation, Message, ReactionSummary } from "../types.js";
+import { Composer, type AttachedObjectRef } from "./Composer.js";
+import type { Conversation, Message, ReactionSummary, WorkOSObjectRef } from "../types.js";
 
 interface ConversationViewProps {
   conversation: Conversation;
   onOpenThread?: (message: Message) => void;
   highlightMessageId?: string | null;
+  onOpenObject?: (obj: WorkOSObjectRef) => void;
+  onCreateTask?: (context: { messageId: string; content: string; authorName: string }) => void;
+  onOpenChannelSettings?: () => void;
 }
 
-const EMOJI_PRESETS = ["👍", "❤️", "🔥", "🎉", "👀", "🚀"];
+const EMOJI_PRESETS = ["👍", "❤️", "🎉", "🔥", "🚀", "😄"];
 
 export function ConversationView({
   conversation,
   onOpenThread,
   highlightMessageId,
+  onOpenObject,
+  onCreateTask,
+  onOpenChannelSettings,
 }: ConversationViewProps) {
   const { token, currentUser } = useAuth();
   const { lastEvent, subscribe, unsubscribe } = useWebSocket();
@@ -109,7 +123,7 @@ export function ConversationView({
         }
       }
 
-      // Handle reply in current conversation
+      // Handle reply in current conversation (auto-update live thread reply counter)
       if (msg.conversation_id === conversation.id && msg.parent_id) {
         setMessages((prev) =>
           prev.map((m) =>
@@ -148,19 +162,21 @@ export function ConversationView({
             let next: ReactionSummary[];
             if (existing) {
               const newCount = isAdd ? existing.count + 1 : Math.max(0, existing.count - 1);
-              const reactedByMe = payload.user_id === currentUser?.id ? isAdd : existing.reacted_by_me;
-              next = currentReactions.map((r) =>
-                r.emoji === payload.emoji
-                  ? { ...r, count: newCount, reacted_by_me: reactedByMe }
-                  : r,
-              ).filter((r) => r.count > 0);
+              const reactedByMe = payload.user_id === currentUser?.id ? isAdd : (existing.reacted_by_me ?? false);
+              next = currentReactions
+                .map((r) =>
+                  r.emoji === payload.emoji
+                    ? { ...r, count: newCount, reacted_by_me: reactedByMe }
+                    : r,
+                )
+                .filter((r) => r.count > 0);
             } else if (isAdd) {
               next = [
                 ...currentReactions,
                 {
-                  emoji: payload.emoji,
+                  emoji: String(payload.emoji ?? ""),
                   count: 1,
-                  user_ids: payload.user_id ? [payload.user_id] : [],
+                  user_ids: payload.user_id ? [String(payload.user_id)] : [],
                   reacted_by_me: payload.user_id === currentUser?.id,
                 },
               ];
@@ -190,7 +206,12 @@ export function ConversationView({
     setShowScrollBottom(isUp);
   };
 
-  const handleSendMessage = async (body: string, mentionIds: string[]) => {
+  const handleSendMessage = async (
+    body: string,
+    mentionIds: string[] = [],
+    attachmentIds: string[] = [],
+    objectRefs: AttachedObjectRef[] = [],
+  ) => {
     if (!token) return;
     const clientMsgId = crypto.randomUUID();
 
@@ -208,7 +229,14 @@ export function ConversationView({
       body,
       parent_id: null,
       reply_count: 0,
-      attachment_ids: [],
+      attachment_ids: attachmentIds,
+      object_references: objectRefs.map((o) => ({
+        type: o.type,
+        id: o.id,
+        title: o.title,
+        subtitle: o.subtitle,
+        status: o.status,
+      })),
       mention_ids: mentionIds,
       edited_at: null,
       deleted_at: null,
@@ -229,6 +257,13 @@ export function ConversationView({
             client_msg_id: clientMsgId,
             body,
             mention_ids: mentionIds,
+            attachment_ids: attachmentIds,
+            object_references: objectRefs.map((o) => ({
+              object_type: o.type,
+              object_id: o.id,
+              display_title: o.title,
+              display_subtitle: o.subtitle ?? "",
+            })),
           }),
         },
       );
@@ -239,6 +274,21 @@ export function ConversationView({
       setMessages((prev) =>
         prev.map((m) => (m.client_msg_id === clientMsgId ? { ...m, status: "failed" } : m)),
       );
+    }
+  };
+
+  const handleDownloadAttachment = async (attachmentId: string) => {
+    if (!token) return;
+    try {
+      const res = await apiRequest<{ data: { download_url: string } }>(
+        `/v1/attachments/${attachmentId}/download-url`,
+        token,
+      );
+      if (res.data?.download_url) {
+        window.open(res.data.download_url, "_blank");
+      }
+    } catch (err) {
+      console.error("Failed to fetch download url:", err);
     }
   };
 
@@ -253,50 +303,19 @@ export function ConversationView({
           body: JSON.stringify({ emoji }),
         },
       );
-      // Optimistic reaction toggle
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id !== messageId) return m;
-          const currentReactions = m.reactions ?? [];
-          const existing = currentReactions.find((r) => r.emoji === emoji);
-          let nextReactions: ReactionSummary[];
-          if (existing) {
-            nextReactions = currentReactions.map((r) =>
-              r.emoji === emoji
-                ? {
-                    ...r,
-                    count: r.reacted_by_me ? r.count - 1 : r.count + 1,
-                    reacted_by_me: !r.reacted_by_me,
-                  }
-                : r,
-            ).filter((r) => r.count > 0);
-          } else {
-            nextReactions = [
-              ...currentReactions,
-              { emoji, count: 1, user_ids: [currentUser?.id ?? ""], reacted_by_me: true },
-            ];
-          }
-          return { ...m, reactions: nextReactions };
-        }),
-      );
     } catch (err) {
       console.error("Failed to add reaction:", err);
     }
   };
 
-  const formatMessageDate = (dateStr: string) => {
-    const d = new Date(dateStr);
+  const formatMessageDate = (isoString: string) => {
+    const d = new Date(isoString);
     const today = new Date();
+    if (d.toDateString() === today.toDateString()) return "Today";
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
-
-    if (d.toDateString() === today.toDateString()) return "Today";
     if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-    return d.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: d.getFullYear() !== today.getFullYear() ? "numeric" : undefined,
-    });
+    return d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
   };
 
   return (
@@ -325,6 +344,11 @@ export function ConversationView({
                   announcements
                 </Badge>
               )}
+              {conversation.is_archived && (
+                <Badge variant="outline" className="text-[10px] text-amber-500 border-amber-500/30">
+                  archived
+                </Badge>
+              )}
             </h2>
             {conversation.topic && (
               <p className="text-[11px] text-[var(--fg-muted)] truncate max-w-md">
@@ -334,15 +358,29 @@ export function ConversationView({
           </div>
         </div>
 
-        {/* Member count badge */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs text-[var(--fg-muted)] px-2 py-1 rounded-[6px] hover:bg-[var(--bg-subtle)] transition-colors cursor-pointer">
+        {/* Member count & Channel Settings */}
+        <div className="flex items-center gap-2">
+          <div
+            onClick={onOpenChannelSettings}
+            className="flex items-center gap-1.5 text-xs text-[var(--fg-muted)] px-2 py-1 rounded-[6px] hover:bg-[var(--bg-subtle)] transition-colors cursor-pointer"
+            title="Channel members"
+          >
             <Users className="h-3.5 w-3.5" />
             <span className="font-medium text-[var(--fg-primary)]">
               {conversation.member_count ?? 1}
             </span>
             <span>members</span>
           </div>
+
+          {conversation.type === "channel" && (
+            <button
+              onClick={onOpenChannelSettings}
+              className="p-1.5 rounded-[6px] text-[var(--fg-muted)] hover:text-[var(--fg-primary)] hover:bg-[var(--bg-subtle)] transition-colors cursor-pointer"
+              title="Channel settings & archive"
+            >
+              <Settings className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -494,6 +532,59 @@ export function ConversationView({
                       {msg.body}
                     </p>
 
+                    {/* Linked WorkOS Object References */}
+                    {msg.object_references && msg.object_references.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {msg.object_references.map((obj) => (
+                          <button
+                            key={obj.id}
+                            type="button"
+                            onClick={() => onOpenObject?.(obj)}
+                            className="inline-flex items-center gap-2 p-2 rounded-xl border border-indigo-500/30 bg-indigo-500/5 hover:bg-indigo-500/10 transition-colors text-left cursor-pointer group/ref"
+                          >
+                            <div className="p-1 rounded-lg bg-indigo-500/15 text-indigo-500">
+                              <FolderKanban className="w-3.5 h-3.5" />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">
+                                  {obj.type} • {obj.id}
+                                </span>
+                                {obj.status && (
+                                  <span className="text-[9px] px-1 rounded-xs bg-emerald-500/15 text-emerald-600 font-semibold">
+                                    {obj.status}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs font-semibold text-[var(--fg-primary)] group-hover/ref:underline truncate max-w-[220px]">
+                                {obj.title}
+                              </p>
+                            </div>
+                            <ExternalLink className="w-3 h-3 text-indigo-400 ml-1 opacity-0 group-hover/ref:opacity-100 transition-opacity" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Attached Files & Images */}
+                    {msg.attachment_ids && msg.attachment_ids.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {msg.attachment_ids.map((attId, attIdx) => (
+                          <button
+                            key={attId}
+                            type="button"
+                            onClick={() => handleDownloadAttachment(attId)}
+                            className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] hover:bg-[var(--bg-subtle)] text-xs text-[var(--fg-primary)] transition-colors cursor-pointer"
+                            title="Download secure attachment (MinIO)"
+                          >
+                            <Paperclip className="w-3.5 h-3.5 text-[var(--accent)]" />
+                            <span className="font-mono text-[11px]">Attachment-{attIdx + 1}</span>
+                            <Download className="w-3 h-3 text-[var(--fg-muted)] ml-1" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
                     {/* Reactions Bar */}
                     {msg.reactions && msg.reactions.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1.5">
@@ -559,6 +650,20 @@ export function ConversationView({
                     >
                       <MessageSquare className="h-3.5 w-3.5" />
                     </button>
+
+                    <button
+                      onClick={() =>
+                        onCreateTask?.({
+                          messageId: msg.id,
+                          content: msg.body,
+                          authorName: msg.author?.name ?? msg.author_name ?? "Team Member",
+                        })
+                      }
+                      className="p-1 rounded-[4px] hover:bg-[var(--bg-subtle)] text-[var(--fg-muted)] hover:text-indigo-400 cursor-pointer"
+                      title="Create WorkOS Task"
+                    >
+                      <CheckSquare className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 </div>
               </React.Fragment>
@@ -582,15 +687,10 @@ export function ConversationView({
 
       {/* Composer */}
       <Composer
-        conversationId={conversation.id}
-        channelName={conversation.name ?? undefined}
-        onSendMessage={handleSendMessage}
-        disabled={conversation.is_archived || (conversation.is_announcement_only && currentUser?.permissions && !currentUser.permissions.includes("communication.announcement.publish"))}
-        disabledReason={
-          conversation.is_archived
-            ? "This channel is archived. Messages cannot be sent."
-            : "Only channel admins can post in announcement channels."
-        }
+        conversation={conversation}
+        onSend={handleSendMessage}
+        disabled={conversation.is_archived}
+        disabledReason={conversation.is_archived ? "This channel is archived. No new messages can be posted." : undefined}
       />
     </div>
   );

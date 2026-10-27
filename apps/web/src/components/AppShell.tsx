@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   Hash,
   Lock,
@@ -13,6 +13,9 @@ import {
   Archive,
   Wifi,
   WifiOff,
+  Shield,
+  FolderKanban,
+  CheckSquare,
 } from "lucide-react";
 import {
   Avatar,
@@ -38,9 +41,23 @@ import { ConversationView } from "./ConversationView.js";
 import { ThreadPanel } from "./ThreadPanel.js";
 import { CommandPalette } from "./CommandPalette.js";
 import { NotificationFlyout } from "./NotificationFlyout.js";
-import type { Conversation, Message, User } from "../types.js";
+import { ChannelAdminModal } from "./ChannelAdminModal.js";
+import { SearchModal } from "./SearchModal.js";
+import { AuditLogViewer } from "./AuditLogViewer.js";
+import { WorkOSObjectDrawer } from "./WorkOSObjectDrawer.js";
+import { CreateTaskModal } from "./CreateTaskModal.js";
+import type { Conversation, Message, User, WorkOSObjectRef } from "../types.js";
 
-export function AppShell() {
+export interface AppShellProps {
+  onOpenObject?: (obj: WorkOSObjectRef) => void;
+  onCreateTask?: (context: { messageId: string; content: string; authorName: string }) => void;
+  theme?: "light" | "dark";
+}
+
+export function AppShell({
+  onOpenObject: hostOnOpenObject,
+  onCreateTask: hostOnCreateTask,
+}: AppShellProps = {}) {
   const { currentUser, currentTag, switchUser, theme, toggleTheme, token, loading: authLoading } = useAuth();
   const { status: wsStatus, lastEvent } = useWebSocket();
 
@@ -50,6 +67,8 @@ export function AppShell() {
   const [activeThreadMessage, setActiveThreadMessage] = useState<Message | null>(null);
   const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [searchModalOpen, setSearchModalOpen] = useState(false);
+  const [auditLogOpen, setAuditLogOpen] = useState(false);
 
   // Dialogs
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
@@ -62,7 +81,13 @@ export function AppShell() {
   const [searchResults, setSearchResults] = useState<User[]>([]);
   const [searchingUsers, setSearchingUsers] = useState(false);
 
-  const [channelSettingsOpen, setChannelSettingsOpen] = useState(false);
+  const [channelAdminTarget, setChannelAdminTarget] = useState<Conversation | null>(null);
+  const [activeObject, setActiveObject] = useState<WorkOSObjectRef | null>(null);
+  const [activeTaskContext, setActiveTaskContext] = useState<{
+    messageId: string;
+    content: string;
+    authorName: string;
+  } | null>(null);
 
   const [loading, setLoading] = useState(true);
 
@@ -94,6 +119,45 @@ export function AppShell() {
     void fetchNav();
   }, [fetchNav]);
 
+  // URL Hash Deep-Linking: Synchronize activeConversation & thread to URL hash
+  useEffect(() => {
+    if (!activeConversation) return;
+    if (activeThreadMessage) {
+      window.location.hash = `/c/${activeConversation.id}/t/${activeThreadMessage.id}`;
+    } else {
+      window.location.hash = `/c/${activeConversation.id}`;
+    }
+  }, [activeConversation?.id, activeThreadMessage?.id]);
+
+  // Listen to hash changes (browser forward/back or external deep link)
+  useEffect(() => {
+    const syncFromHash = () => {
+      const rawHash = window.location.hash.replace(/^#\/?/, "");
+      const match = rawHash.match(/^c\/([^/]+)(?:\/t\/([^/]+))?/);
+      if (!match) return;
+      const [, convId, threadId] = match;
+      if (!convId) return;
+
+      const allConvs = [...channels, ...dms];
+      const target = allConvs.find((c) => c.id === convId);
+      if (target && target.id !== activeConversation?.id) {
+        setActiveConversation(target);
+      }
+
+      if (threadId) {
+        setActiveThreadMessage((prev) =>
+          prev?.id === threadId ? prev : ({ id: threadId, conversation_id: convId } as Message),
+        );
+      } else if (!threadId && activeThreadMessage) {
+        setActiveThreadMessage(null);
+      }
+    };
+
+    window.addEventListener("hashchange", syncFromHash);
+    syncFromHash();
+    return () => window.removeEventListener("hashchange", syncFromHash);
+  }, [channels, dms, activeConversation?.id, activeThreadMessage]);
+
   // Handle live WebSocket unread updates for non-active conversations
   useEffect(() => {
     if (!lastEvent) return;
@@ -113,6 +177,21 @@ export function AppShell() {
       }
     }
   }, [lastEvent, activeConversation?.id]);
+
+  // Host Action Handlers
+  const handleOpenObject = (obj: WorkOSObjectRef) => {
+    if (hostOnOpenObject) {
+      hostOnOpenObject(obj);
+    }
+    setActiveObject(obj);
+  };
+
+  const handleCreateTask = (ctx: { messageId: string; content: string; authorName: string }) => {
+    if (hostOnCreateTask) {
+      hostOnCreateTask(ctx);
+    }
+    setActiveTaskContext(ctx);
+  };
 
   // Create Channel Handler
   const handleCreateChannel = async (e: React.FormEvent) => {
@@ -151,7 +230,6 @@ export function AppShell() {
           `/v1/users/search?q=${encodeURIComponent(userSearchQuery)}`,
           token,
         );
-        // Exclude current user
         setSearchResults(res.data.filter((u) => u.id !== currentUser?.id));
       } catch {
         setSearchResults([]);
@@ -193,9 +271,8 @@ export function AppShell() {
     if (target) {
       setActiveConversation(target);
     } else {
-      // Fetch conversation if not in local nav
-      void apiRequest<{ data: Conversation }>(`/v1/channels`, token).then((res) => {
-        const found = res.data.find((c) => c.id === conversationId);
+      void apiRequest<{ data: Conversation[] }>(`/v1/channels`, token ?? "").then((res) => {
+        const found = res.data.find((c: Conversation) => c.id === conversationId);
         if (found) setActiveConversation(found);
       });
     }
@@ -204,6 +281,11 @@ export function AppShell() {
       setHighlightMessageId(messageId);
       setTimeout(() => setHighlightMessageId(null), 3500);
     }
+  };
+
+  // Search selection handler
+  const handleSelectSearchResult = (conversationId: string, messageId: string) => {
+    handleSelectNotification(conversationId, messageId);
   };
 
   if (authLoading) {
@@ -238,12 +320,21 @@ export function AppShell() {
           <div className="flex items-center gap-1">
             <NotificationFlyout onSelectNotification={handleSelectNotification} />
             <button
-              onClick={() => setCommandPaletteOpen(true)}
+              onClick={() => setSearchModalOpen(true)}
               className="p-1.5 rounded-[4px] text-[var(--fg-muted)] hover:text-[var(--fg-primary)] hover:bg-[var(--bg-subtle)] transition-colors cursor-pointer"
               title="Search (Cmd+K)"
             >
               <Search className="h-4 w-4" />
             </button>
+            {currentUser?.permissions?.includes("communication.audit.read") && (
+              <button
+                onClick={() => setAuditLogOpen(true)}
+                className="p-1.5 rounded-[4px] text-[var(--fg-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-subtle)] transition-colors cursor-pointer"
+                title="Audit Trail"
+              >
+                <Shield className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -434,6 +525,9 @@ export function AppShell() {
             conversation={activeConversation}
             onOpenThread={(msg) => setActiveThreadMessage(msg)}
             highlightMessageId={highlightMessageId}
+            onOpenObject={handleOpenObject}
+            onCreateTask={handleCreateTask}
+            onOpenChannelSettings={() => setChannelAdminTarget(activeConversation)}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
@@ -450,6 +544,58 @@ export function AppShell() {
           conversation={activeConversation}
           rootMessage={activeThreadMessage}
           onClose={() => setActiveThreadMessage(null)}
+          onOpenObject={handleOpenObject}
+        />
+      )}
+
+      {/* Search Modal */}
+      <SearchModal
+        open={searchModalOpen}
+        onClose={() => setSearchModalOpen(false)}
+        onSelectResult={handleSelectSearchResult}
+      />
+
+      {/* Audit Log Modal */}
+      <AuditLogViewer
+        open={auditLogOpen}
+        onClose={() => setAuditLogOpen(false)}
+      />
+
+      {/* Channel Settings & Admin Modal */}
+      {channelAdminTarget && (
+        <ChannelAdminModal
+          channel={channelAdminTarget}
+          onClose={() => setChannelAdminTarget(null)}
+          onChannelUpdated={(updated) => {
+            setChannels((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+            if (activeConversation?.id === updated.id) {
+              setActiveConversation(updated);
+            }
+            setChannelAdminTarget(updated);
+          }}
+        />
+      )}
+
+      {/* WorkOS Object Drawer */}
+      {activeObject && (
+        <WorkOSObjectDrawer
+          object={activeObject}
+          onClose={() => setActiveObject(null)}
+          onRequestCreateTask={() => {
+            setActiveTaskContext({
+              messageId: activeConversation?.id ?? "manual",
+              content: `Reviewing WorkOS ${activeObject.type.toUpperCase()}: ${activeObject.title}`,
+              authorName: currentUser?.name ?? "Team Member",
+            });
+          }}
+        />
+      )}
+
+      {/* Create Task Modal */}
+      {activeTaskContext && (
+        <CreateTaskModal
+          context={activeTaskContext}
+          onClose={() => setActiveTaskContext(null)}
         />
       )}
 
@@ -602,7 +748,7 @@ export function AppShell() {
                       <Avatar name={user.name} src={user.avatar_url} size="sm" presence="online" />
                       <div>
                         <p className="text-xs font-semibold text-[var(--fg-primary)]">{user.name}</p>
-                        <p className="text-[10px] text-[var(--fg-muted)]">Acme Corp Team Member</p>
+                        <p className="text-[10px] text-[var(--fg-muted)]">Team Member</p>
                       </div>
                     </div>
                     <UserPlus className="h-4 w-4 text-[var(--fg-subtle)]" />

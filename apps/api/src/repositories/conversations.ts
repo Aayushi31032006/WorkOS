@@ -233,6 +233,17 @@ export const conversationsRepo = {
     });
   },
 
+  async unarchiveChannel(identity: RequestIdentity, id: string) {
+    return withTenantTx(identity, async (tx: Db) => {
+      const [updated] = await tx
+        .update(conversations)
+        .set({ is_archived: false, updated_at: new Date() })
+        .where(and(eq(conversations.id, id), eq(conversations.company_id, identity.companyId)))
+        .returning();
+      return updated ?? null;
+    });
+  },
+
   async createOrGetDm(identity: RequestIdentity, targetUserIds: string[]) {
     return withTenantTx(identity, async (tx: Db) => {
       const allUserIds = Array.from(new Set([identity.userId, ...targetUserIds])).sort();
