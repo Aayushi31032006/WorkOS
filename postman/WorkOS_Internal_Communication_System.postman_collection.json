@@ -1,0 +1,376 @@
+{
+  "info": {
+    "name": "WorkOS Internal Communication System API",
+    "description": "Comprehensive Postman collection for the standalone WorkOS Internal Communication System REST API (31 endpoints).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health & System",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "health"]
+            }
+          }
+        },
+        {
+          "name": "Acceptance Demonstration Suite",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{vedantToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/acceptance/run",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "acceptance", "run"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth & Identity",
+      "item": [
+        {
+          "name": "Get Current User Profile & Claims",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{vedantToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "auth", "me"]
+            }
+          }
+        },
+        {
+          "name": "Exchange WorkOS Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{vedantToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/auth/exchange",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "auth", "exchange"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Channels",
+      "item": [
+        {
+          "name": "List Channels",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{vedantToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/channels",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "channels"]
+            }
+          }
+        },
+        {
+          "name": "Create Channel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{vedantToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"project-apollo\",\n  \"type\": \"project\",\n  \"topic\": \"Apollo Lunar Mission Workspace\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/channels",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "channels"]
+            }
+          }
+        },
+        {
+          "name": "Archive Channel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{vedantToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/channels/chn_proj_apollo/archive",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "channels", "chn_proj_apollo", "archive"]
+            }
+          }
+        },
+        {
+          "name": "Unarchive Channel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{vedantToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/channels/chn_proj_apollo/unarchive",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "channels", "chn_proj_apollo", "unarchive"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Messages & Threads",
+      "item": [
+        {
+          "name": "Get Channel Messages",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{vedantToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/channels/chn_engineering/messages?limit=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "channels", "chn_engineering", "messages"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Send Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{vedantToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Hello team, Sprint 42 planning is live!\",\n  \"idempotency_key\": \"msg-req-001\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/channels/chn_engineering/messages",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "channels", "chn_engineering", "messages"]
+            }
+          }
+        },
+        {
+          "name": "Get Thread Replies",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{vedantToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/messages/msg_001/thread",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "messages", "msg_001", "thread"]
+            }
+          }
+        },
+        {
+          "name": "Post Thread Reply",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{vedantToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Confirmed, reviewing the tickets right now.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/messages/msg_001/thread",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "messages", "msg_001", "thread"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Attachments & Storage",
+      "item": [
+        {
+          "name": "Get Presigned Upload URL",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{vedantToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filename\": \"architecture-specs.pdf\",\n  \"mime_type\": \"application/pdf\",\n  \"size_bytes\": 1048576\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/attachments/presign-upload",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "attachments", "presign-upload"]
+            }
+          }
+        },
+        {
+          "name": "Get Presigned Download URL",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{vedantToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/attachments/att_001/presign-download",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "attachments", "att_001", "presign-download"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Audit & Search",
+      "item": [
+        {
+          "name": "Query Audit Logs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{vedantToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/audit?limit=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "audit"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "25"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Tenant Message Search",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{vedantToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/search?q=Apollo&type=messages",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "search"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "Apollo"
+                },
+                {
+                  "key": "type",
+                  "value": "messages"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000",
+      "type": "string"
+    },
+    {
+      "key": "vedantToken",
+      "value": "usr_acme_vedant",
+      "type": "string"
+    }
+  ]
+}

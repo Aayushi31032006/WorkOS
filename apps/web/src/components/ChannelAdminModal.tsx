@@ -1,377 +1,275 @@
-import React, { useState, useEffect } from "react";
-import { X, Users, UserPlus, UserMinus, Archive, RotateCcw, Hash, Lock, ShieldAlert, Check, Loader2 } from "lucide-react";
-import { Button, Input, Avatar, Badge } from "@cs/ui";
-import { apiRequest } from "../api/client.js";
-import { useAuth } from "../context/AuthContext.js";
-import type { Conversation, User } from "../types.js";
-
-interface ChannelMember {
-  id: string;
-  user_id: string;
-  role: "owner" | "admin" | "member";
-  user?: User;
-}
+import React, { useState } from 'react';
+import { X, Users, UserPlus, UserMinus, Archive, Hash, Lock, ShieldAlert, Check } from 'lucide-react';
+import { Channel, TokenClaims, User } from '../packages/contracts/types';
+import { SYNTHETIC_USERS } from '../packages/test-fixtures/fixtures';
+import { communicationEngine } from '../packages/sdk/client';
 
 interface ChannelAdminModalProps {
-  channel: Conversation;
+  claims: TokenClaims;
+  channel: Channel;
   onClose: () => void;
-  onChannelUpdated: (updated: Conversation) => void;
+  onChannelUpdated: (updated: Channel) => void;
 }
 
 export const ChannelAdminModal: React.FC<ChannelAdminModalProps> = ({
+  claims,
   channel,
   onClose,
   onChannelUpdated,
 }) => {
-  const { token, currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<"members" | "settings">("members");
-  const [members, setMembers] = useState<ChannelMember[]>([]);
-  const [loadingMembers, setLoadingMembers] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [candidateUsers, setCandidateUsers] = useState<User[]>([]);
-  const [searchingCandidates, setSearchingCandidates] = useState(false);
-  const [topic, setTopic] = useState(channel.topic ?? "");
-  const [savingTopic, setSavingTopic] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'members' | 'settings'>('members');
+  const [selectedNewMember, setSelectedNewMember] = useState('');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const canManageChannel =
-    currentUser?.permissions?.includes("communication.channel.manage") ?? false;
-  const canManageMembers =
-    currentUser?.permissions?.includes("communication.member.manage") ?? false;
+  const canManageChannel = claims.permissions.includes('communication.channel.manage');
+  const canManageMembers = claims.permissions.includes('communication.member.manage');
 
-  // Fetch current members
-  useEffect(() => {
-    if (!token || !channel.id) return;
-    setLoadingMembers(true);
-    apiRequest<{ data: ChannelMember[] }>(`/v1/conversations/${channel.id}/members`, token)
-      .then((res) => {
-        setMembers(res.data);
-      })
-      .catch((err) => {
-        console.error("Failed to fetch members:", err);
-      })
-      .finally(() => {
-        setLoadingMembers(false);
-      });
-  }, [channel.id, token]);
+  // Company users not yet in this channel
+  const availableUsers = Object.values(SYNTHETIC_USERS).filter(
+    (u) => u.company_id === claims.company_id && !channel.member_ids.includes(u.id)
+  );
 
-  // Search candidate users to add
-  useEffect(() => {
-    if (!searchQuery.trim() || !token) {
-      setCandidateUsers([]);
-      return;
-    }
-    const timer = setTimeout(() => {
-      setSearchingCandidates(true);
-      apiRequest<{ data: User[] }>(`/v1/users/search?q=${encodeURIComponent(searchQuery)}`, token)
-        .then((res) => {
-          const currentMemberIds = new Set(members.map((m) => m.user_id));
-          setCandidateUsers(res.data.filter((u) => !currentMemberIds.has(u.id)));
-        })
-        .catch(() => setCandidateUsers([]))
-        .finally(() => setSearchingCandidates(false));
-    }, 200);
+  const handleAddMember = () => {
+    if (!selectedNewMember) return;
+    setErrorMsg(null);
+    setSuccessMsg(null);
 
-    return () => clearTimeout(timer);
-  }, [searchQuery, token, members]);
-
-  const handleAddMember = async (userId: string) => {
-    if (!token) return;
-    setActionError(null);
-    setActionSuccess(null);
     try {
-      const res = await apiRequest<{ data: ChannelMember }>(
-        `/v1/conversations/${channel.id}/members`,
-        token,
-        {
-          method: "POST",
-          body: JSON.stringify({ user_id: userId, role: "member" }),
-        },
+      const updated = communicationEngine.updateChannelMembers(
+        claims,
+        channel.id,
+        'add',
+        selectedNewMember
       );
-      setMembers((prev) => [...prev, res.data]);
-      setActionSuccess("Member added successfully");
-      setSearchQuery("");
-      setCandidateUsers([]);
-      onChannelUpdated({ ...channel, member_count: (channel.member_count ?? 1) + 1 });
+      setSelectedNewMember('');
+      setSuccessMsg('Member added successfully.');
+      onChannelUpdated(updated);
     } catch (err: any) {
-      setActionError(err.message ?? "Failed to add member");
+      setErrorMsg(err.message || 'Failed to add member');
     }
   };
 
-  const handleRemoveMember = async (userId: string) => {
-    if (!token) return;
-    setActionError(null);
-    setActionSuccess(null);
+  const handleRemoveMember = (memberId: string) => {
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
     try {
-      await apiRequest(
-        `/v1/conversations/${channel.id}/members/${userId}`,
-        token,
-        { method: "DELETE" },
+      const updated = communicationEngine.updateChannelMembers(
+        claims,
+        channel.id,
+        'remove',
+        memberId
       );
-      setMembers((prev) => prev.filter((m) => m.user_id !== userId));
-      setActionSuccess("Member removed");
-      onChannelUpdated({ ...channel, member_count: Math.max(1, (channel.member_count ?? 2) - 1) });
+      setSuccessMsg('Member removed.');
+      onChannelUpdated(updated);
     } catch (err: any) {
-      setActionError(err.message ?? "Failed to remove member");
+      setErrorMsg(err.message || 'Failed to remove member');
     }
   };
 
-  const handleSaveTopic = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token || !canManageChannel) return;
-    setSavingTopic(true);
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      const res = await apiRequest<{ data: Conversation }>(
-        `/v1/channels/${channel.id}`,
-        token,
-        {
-          method: "PATCH",
-          body: JSON.stringify({ topic }),
-        },
-      );
-      onChannelUpdated(res.data);
-      setActionSuccess("Channel topic updated");
-    } catch (err: any) {
-      setActionError(err.message ?? "Failed to update channel");
-    } finally {
-      setSavingTopic(false);
-    }
-  };
+  const handleToggleArchive = () => {
+    setErrorMsg(null);
+    setSuccessMsg(null);
 
-  const handleToggleArchive = async () => {
-    if (!token || !canManageChannel) return;
-    setActionError(null);
-    setActionSuccess(null);
     try {
-      const endpoint = channel.is_archived
-        ? `/v1/channels/${channel.id}/unarchive`
-        : `/v1/channels/${channel.id}/archive`;
-      const res = await apiRequest<{ data: Conversation }>(endpoint, token, { method: "POST" });
-      onChannelUpdated(res.data);
-      setActionSuccess(res.data.is_archived ? "Channel archived" : "Channel restored");
+      const updated = communicationEngine.archiveChannel(claims, channel.id);
+      setSuccessMsg(updated.is_archived ? 'Channel archived.' : 'Channel unarchived.');
+      onChannelUpdated(updated);
     } catch (err: any) {
-      setActionError(err.message ?? "Failed to archive channel");
+      setErrorMsg(err.message || 'Failed to update channel archive state');
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
-      <div className="bg-[var(--bg-surface,#ffffff)] rounded-2xl max-w-lg w-full shadow-2xl border border-[var(--border-subtle,#e2e8f0)] overflow-hidden flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-scaleUp">
         {/* Header */}
-        <div className="px-6 py-5 border-b border-[var(--border-subtle,#e2e8f0)] flex items-center justify-between shrink-0">
+        <div className="px-6 py-5 border-b border-blue-100 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-[var(--accent-subtle,#e0e7ff)] text-[var(--accent,#4f46e5)] flex items-center justify-center font-bold">
-              {channel.kind === "private" ? <Lock className="w-4 h-4" /> : <Hash className="w-4 h-4" />}
+            <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-blue-700 border border-blue-100">
+              {channel.type === 'private' ? (
+                <Lock className="w-4 h-4" />
+              ) : (
+                <Hash className="w-4 h-4" />
+              )}
             </div>
             <div>
-              <h3 className="text-base font-bold text-[var(--fg-primary,#0f172a)] flex items-center gap-2">
-                #{channel.name}
-                {channel.is_archived && (
-                  <Badge variant="outline" className="text-[10px] text-amber-500 border-amber-500/30">
-                    Archived
-                  </Badge>
-                )}
-              </h3>
-              <p className="text-xs text-[var(--fg-muted,#64748b)]">Channel Management & Permissions</p>
+              <h3 className="text-base font-bold text-slate-900">#{channel.name}</h3>
+              <p className="text-xs text-slate-500">Channel Administration & RBAC</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-[var(--fg-muted,#64748b)] hover:text-[var(--fg-primary,#0f172a)] hover:bg-[var(--bg-subtle,#f1f5f9)]"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-[var(--border-subtle,#e2e8f0)] px-6 shrink-0 bg-[var(--bg-subtle,#f8fafc)]">
+        {/* Tab switcher */}
+        <div className="flex border-b border-blue-100 px-6 gap-6 text-xs font-semibold bg-blue-50/20">
           <button
-            onClick={() => setActiveTab("members")}
-            className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
-              activeTab === "members"
-                ? "border-[var(--accent,#4f46e5)] text-[var(--accent,#4f46e5)]"
-                : "border-transparent text-[var(--fg-muted,#64748b)] hover:text-[var(--fg-primary,#0f172a)]"
+            onClick={() => setActiveTab('members')}
+            className={`py-3 border-b-2 transition ${
+              activeTab === 'members'
+                ? 'border-blue-600 text-blue-700'
+                : 'border-transparent text-slate-500 hover:text-blue-900'
             }`}
           >
-            <Users className="w-3.5 h-3.5" />
-            Members ({members.length})
+            Members ({channel.member_ids.length})
           </button>
           <button
-            onClick={() => setActiveTab("settings")}
-            className={`py-3 px-3 text-xs font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
-              activeTab === "settings"
-                ? "border-[var(--accent,#4f46e5)] text-[var(--accent,#4f46e5)]"
-                : "border-transparent text-[var(--fg-muted,#64748b)] hover:text-[var(--fg-primary,#0f172a)]"
+            onClick={() => setActiveTab('settings')}
+            className={`py-3 border-b-2 transition ${
+              activeTab === 'settings'
+                ? 'border-blue-600 text-blue-700'
+                : 'border-transparent text-slate-500 hover:text-blue-900'
             }`}
           >
-            <Archive className="w-3.5 h-3.5" />
             Settings & Archive
           </button>
         </div>
 
-        {/* Feedback alerts */}
-        {actionError && (
-          <div className="mx-6 mt-3 p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-500 flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4 shrink-0" />
-            <span>{actionError}</span>
+        {/* Alerts */}
+        {errorMsg && (
+          <div className="mx-6 mt-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 shrink-0 text-rose-600" />
+            <span>{errorMsg}</span>
           </div>
         )}
-        {actionSuccess && (
-          <div className="mx-6 mt-3 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-600 flex items-center gap-2">
-            <Check className="w-4 h-4 shrink-0" />
-            <span>{actionSuccess}</span>
+        {successMsg && (
+          <div className="mx-6 mt-4 p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800 flex items-center gap-2">
+            <Check className="w-4 h-4 shrink-0 text-blue-600" />
+            <span>{successMsg}</span>
           </div>
         )}
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {activeTab === "members" ? (
+        {/* Body */}
+        <div className="p-6">
+          {activeTab === 'members' && (
             <div className="space-y-4">
-              {/* Add member search */}
-              {canManageMembers && (
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-[var(--fg-secondary,#475569)] block">
-                    Add Team Member
-                  </label>
-                  <div className="relative">
-                    <Input
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search company members to add..."
-                      className="text-xs"
-                    />
-                    {searchingCandidates && (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin absolute right-3 top-2.5 text-[var(--fg-muted)]" />
-                    )}
-                  </div>
-                  {candidateUsers.length > 0 && (
-                    <div className="border border-[var(--border-subtle,#e2e8f0)] rounded-lg divide-y divide-[var(--border-subtle,#e2e8f0)] max-h-36 overflow-y-auto bg-[var(--bg-canvas,#ffffff)]">
-                      {candidateUsers.map((user) => (
-                        <div
-                          key={user.id}
-                          className="p-2 flex items-center justify-between hover:bg-[var(--bg-subtle,#f8fafc)] text-xs"
-                        >
-                          <div className="flex items-center gap-2">
-                            <Avatar name={user.name} src={user.avatar_url} size="xs" />
-                            <span className="font-medium text-[var(--fg-primary,#0f172a)]">{user.name}</span>
-                          </div>
-                          <Button
-                            size="xs"
-                            variant="primary"
-                            onClick={() => handleAddMember(user.id)}
-                            className="flex items-center gap-1"
-                          >
-                            <UserPlus className="w-3 h-3" />
-                            Add
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+              {/* Add member control */}
+              {canManageMembers ? (
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedNewMember}
+                    onChange={(e) => setSelectedNewMember(e.target.value)}
+                    className="flex-1 px-3 py-2 bg-blue-50/40 border border-blue-100 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  >
+                    <option value="">Select team member to add...</option>
+                    {availableUsers.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} ({u.role_title})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleAddMember}
+                    disabled={!selectedNewMember}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 disabled:opacity-40 transition flex items-center gap-1.5 shadow-2xs"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                    <span>Add</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="text-xs text-slate-500 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  You have view-only access for channel members (requires `communication.member.manage`).
                 </div>
               )}
 
               {/* Members List */}
-              <div className="space-y-2">
-                <span className="text-xs font-semibold text-[var(--fg-secondary,#475569)] block">
-                  Current Channel Members
-                </span>
-                {loadingMembers ? (
-                  <div className="py-6 text-center text-xs text-[var(--fg-muted)]">Loading members...</div>
-                ) : (
-                  <div className="border border-[var(--border-subtle,#e2e8f0)] rounded-xl divide-y divide-[var(--border-subtle,#e2e8f0)] bg-[var(--bg-canvas,#ffffff)] max-h-56 overflow-y-auto">
-                    {members.map((m) => (
-                      <div
-                        key={m.id}
-                        className="p-3 flex items-center justify-between hover:bg-[var(--bg-subtle,#f8fafc)] transition-colors text-xs"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <Avatar
-                            name={m.user?.name ?? `User ${m.user_id.slice(0, 5)}`}
-                            src={m.user?.avatar_url}
-                            size="sm"
-                          />
-                          <div className="truncate">
-                            <p className="font-semibold text-[var(--fg-primary,#0f172a)] truncate">
-                              {m.user?.name ?? m.user_id}
-                            </p>
-                            <span className="text-[10px] text-[var(--fg-muted,#64748b)] capitalize">
-                              {m.role}
-                            </span>
+              <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto">
+                {channel.member_ids.map((mId) => {
+                  const user = Object.values(SYNTHETIC_USERS).find((u) => u.id === mId);
+                  const isCreator = channel.created_by === mId;
+
+                  return (
+                    <div
+                      key={mId}
+                      className="py-2.5 flex items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-7 h-7 rounded-full bg-slate-900 text-white font-bold text-[10px] flex items-center justify-center shrink-0">
+                          {user?.initials || 'U'}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-semibold text-slate-900 truncate">
+                            {user?.name || mId}
+                          </div>
+                          <div className="text-[10px] text-slate-400 truncate">
+                            {user?.role_title || 'Workspace User'}
                           </div>
                         </div>
+                      </div>
 
-                        {canManageMembers && m.user_id !== currentUser?.id && (
+                      <div className="flex items-center gap-2">
+                        {isCreator && (
+                          <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                            Creator
+                          </span>
+                        )}
+                        {canManageMembers && !isCreator && (
                           <button
-                            onClick={() => handleRemoveMember(m.user_id)}
-                            className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
+                            onClick={() => handleRemoveMember(mId)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded transition"
                             title="Remove member"
                           >
                             <UserMinus className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </div>
-                    ))}
-                  </div>
-                )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
-          ) : (
+          )}
+
+          {activeTab === 'settings' && (
             <div className="space-y-5">
-              {/* Channel Topic */}
-              <form onSubmit={handleSaveTopic} className="space-y-3">
-                <label className="text-xs font-semibold text-[var(--fg-secondary,#475569)] block">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Channel Topic
                 </label>
-                <Input
-                  value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
-                  placeholder="Set channel topic or description..."
-                  className="text-xs"
-                  disabled={!canManageChannel}
-                />
-                {canManageChannel && (
-                  <Button type="submit" size="xs" variant="primary" disabled={savingTopic}>
-                    {savingTopic ? "Saving..." : "Save Topic"}
-                  </Button>
-                )}
-              </form>
-
-              {/* Archive / Unarchive */}
-              {canManageChannel && (
-                <div className="pt-4 border-t border-[var(--border-subtle,#e2e8f0)] space-y-3">
-                  <span className="text-xs font-bold text-[var(--fg-primary,#0f172a)] block">
-                    {channel.is_archived ? "Restore Channel" : "Archive Channel"}
-                  </span>
-                  <p className="text-xs text-[var(--fg-muted,#64748b)]">
-                    {channel.is_archived
-                      ? "Unarchiving this channel will restore it for all members and allow new messages."
-                      : "Archiving this channel hides it from active navigation and prevents new messages. Existing messages remain searchable."}
-                  </p>
-                  <Button
-                    type="button"
-                    variant={channel.is_archived ? "outline" : "danger"}
-                    size="sm"
-                    onClick={handleToggleArchive}
-                    className="flex items-center gap-1.5"
-                  >
-                    {channel.is_archived ? (
-                      <>
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        Unarchive #{channel.name}
-                      </>
-                    ) : (
-                      <>
-                        <Archive className="w-3.5 h-3.5" />
-                        Archive #{channel.name}
-                      </>
-                    )}
-                  </Button>
+                <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                  {channel.topic || 'No topic configured'}
                 </div>
-              )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Channel Description
+                </label>
+                <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                  {channel.description || 'No description'}
+                </div>
+              </div>
+
+              {/* Archive channel control */}
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900">Archive Channel</h4>
+                  <p className="text-[11px] text-slate-500">
+                    Archived channels are read-only and preserved for compliance.
+                  </p>
+                </div>
+                {canManageChannel ? (
+                  <button
+                    onClick={handleToggleArchive}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+                      channel.is_archived
+                        ? 'bg-slate-900 text-white hover:bg-slate-800'
+                        : 'bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100'
+                    }`}
+                  >
+                    {channel.is_archived ? 'Unarchive' : 'Archive'}
+                  </button>
+                ) : (
+                  <span className="text-xs text-slate-400">Permission required</span>
+                )}
+              </div>
             </div>
           )}
         </div>

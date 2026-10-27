@@ -1,18 +1,29 @@
 @import "tailwindcss";
-@import "@cs/ui/styles.css";
 
-/* Base scrollbar styling */
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Custom scrollbars for chat feeds and sidebar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: var(--bg-muted);
+  background: rgba(148, 163, 184, 0.4);
   border-radius: 9999px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--fg-subtle);
+  background: rgba(100, 116, 139, 0.6);
 }
