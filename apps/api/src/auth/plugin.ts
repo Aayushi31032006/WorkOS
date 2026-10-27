@@ -1,4 +1,4 @@
-﻿import fp from "fastify-plugin";
+import fp from "fastify-plugin";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { TokenClaimsSchema } from "@cs/contracts";
@@ -82,7 +82,8 @@ export default fp(async (fastify: FastifyInstance) => {
       path.startsWith("/v1/health") ||
       path.startsWith("/ws") ||
       path.startsWith("/v1/ws") ||
-      path.startsWith("/documentation")
+      path.startsWith("/documentation") ||
+      path.startsWith("/v1/webhooks/receiver")
     ) {
       return;
     }
