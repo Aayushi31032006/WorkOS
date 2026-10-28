@@ -11,7 +11,13 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
+    "dev:frontend": "pnpm --filter @cs/web dev",
+    "dev:backend": "pnpm --filter @cs/api dev",
+    "dev:idp": "pnpm --filter @cs/mock-idp dev",
     "dev:all": "docker compose -f infra/docker-compose.yml up -d postgres minio && turbo run dev --parallel",
+    "db:migrate": "pnpm --filter @cs/api db:migrate",
+    "db:seed": "pnpm --filter @cs/api db:seed",
+    "db:setup": "pnpm db:migrate && pnpm db:seed",
     "lint": "turbo run lint",
     "lint:fix": "turbo run lint:fix",
     "typecheck": "turbo run typecheck",

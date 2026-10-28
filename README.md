@@ -71,16 +71,19 @@ cd Work-os
 pnpm install
 
 # 3. Start Frontend (Vite Dev Server)
-pnpm --filter @cs/web dev
+pnpm dev:frontend
 # Access the web app at: http://localhost:5173
 
-# 4. Start Backend API
-pnpm --filter @cs/api dev
-# API listening at: http://localhost:4000
+# 4. Start Backend API (Fastify)
+pnpm dev:backend
+# API listening at: http://localhost:4000 (Status Dashboard at http://localhost:4000/)
 
-# 5. Start Mock IdP (Optional for custom token generation)
-pnpm --filter @cs/mock-idp dev
-# Mock IdP listening at: http://localhost:4001
+# 5. Start Mock IdP (Token Issuer & JWKS)
+pnpm dev:idp
+# Mock IdP listening at: http://localhost:4001 (Interactive Dashboard at http://localhost:4001/)
+
+# 6. (Optional) Setup PostgreSQL Database & Seed Synthetic Data
+pnpm db:setup
 ```
 
 ### Option B: Full Docker Stack (PostgreSQL, MinIO, API, Web, Mock IdP)

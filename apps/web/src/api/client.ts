@@ -1,7 +1,7 @@
 const API_BASE =
   (import.meta.env.VITE_COMMUNICATION_API_URL as string | undefined) ||
   (import.meta.env.VITE_API_URL as string | undefined) ||
-  "http://localhost:3001";
+  "http://localhost:4000";
 
 export class ApiError extends Error {
   constructor(

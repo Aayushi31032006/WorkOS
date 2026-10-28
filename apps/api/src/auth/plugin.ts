@@ -78,6 +78,7 @@ export default fp(async (fastify: FastifyInstance) => {
   fastify.addHook("onRequest", async (request) => {
     const path = request.url.split("?")[0] ?? "";
     if (
+      path === "/" ||
       path.startsWith("/health") ||
       path.startsWith("/v1/health") ||
       path.startsWith("/ws") ||

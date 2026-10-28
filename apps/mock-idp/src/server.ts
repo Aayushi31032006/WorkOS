@@ -92,6 +92,74 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  // Root dashboard (HTML or JSON)
+  if (path === "/" && method === "GET") {
+    const isBrowser = (req.headers.accept ?? "").includes("text/html");
+    if (!isBrowser) {
+      json(res, 200, {
+        service: "WorkOS Mock Identity Provider",
+        status: "operational",
+        port: config.PORT,
+        endpoints: {
+          jwks: "/.well-known/jwks.json",
+          token: "/token?tag=acme-owner",
+          users: "/users",
+          health: "/health",
+        },
+        mainApp: "http://localhost:5173/",
+      });
+      return;
+    }
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WorkOS Mock Identity Provider</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; padding: 40px 20px; }
+    .card { max-width: 680px; margin: 0 auto; background: white; border-radius: 20px; border: 1px solid #e2e8f0; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); padding: 36px; }
+    .badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; background: #ecfdf5; color: #065f46; border-radius: 9999px; font-size: 13px; font-weight: 600; margin-bottom: 16px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; }
+    h1 { font-size: 24px; font-weight: 800; margin: 0 0 8px 0; color: #0a1a36; }
+    p { font-size: 14px; color: #64748b; line-height: 1.5; margin: 0 0 24px 0; }
+    .btn { display: inline-block; background: #2563eb; color: white; padding: 12px 24px; border-radius: 12px; text-decoration: none; font-weight: 600; font-size: 14px; margin-bottom: 28px; }
+    .btn:hover { background: #1d4ed8; }
+    .section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #475569; margin-bottom: 12px; }
+    .list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+    .list a { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #f1f5f9; border-radius: 10px; color: #1e293b; text-decoration: none; font-size: 13px; font-family: monospace; font-weight: 600; transition: background 0.15s; }
+    .list a:hover { background: #e2e8f0; color: #0f172a; }
+    .note { margin-top: 24px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge"><span class="dot"></span> Operational (Port ${config.PORT})</div>
+    <h1>WorkOS Mock Identity Provider</h1>
+    <p>This service simulates the WorkOS Authentication & Token Issuer. It issues signed RS256 JSON Web Tokens and serves JWKS keys for local integration.</p>
+    <a href="http://localhost:5173" class="btn">🚀 Open Main Application (http://localhost:5173) &rarr;</a>
+    <div class="section-title">Available Mock IdP Endpoints</div>
+    <ul class="list">
+      <li><a href="/.well-known/jwks.json" target="_blank"><span>🔑 Public JWKS Keystore</span><span>/.well-known/jwks.json &rarr;</span></a></li>
+      <li><a href="/token?tag=acme-owner" target="_blank"><span>🎟️ Issue Token: Alice Chen (Owner)</span><span>/token?tag=acme-owner &rarr;</span></a></li>
+      <li><a href="/token?tag=acme-member" target="_blank"><span>🎟️ Issue Token: Carol Thompson (Member)</span><span>/token?tag=acme-member &rarr;</span></a></li>
+      <li><a href="/users" target="_blank"><span>👥 List Synthetic Personas</span><span>/users &rarr;</span></a></li>
+      <li><a href="/health" target="_blank"><span>💓 Health Status</span><span>/health &rarr;</span></a></li>
+    </ul>
+    <div class="note">Designed for WorkOS Internal Communication System development & integration testing.</div>
+  </div>
+</body>
+</html>`;
+
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Length": Buffer.byteLength(html),
+    });
+    res.end(html);
+    return;
+  }
+
   // Health
   if (path === "/health" && method === "GET") {
     json(res, 200, {
